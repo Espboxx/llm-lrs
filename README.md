@@ -1,6 +1,5 @@
 
 
-好的,我来帮您编写一个`README.md`文件:
 
 ```markdown
 # LLM-Werewolf: AI狼人杀对战系统
