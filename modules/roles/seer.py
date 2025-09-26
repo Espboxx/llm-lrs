@@ -14,11 +14,10 @@ class Seer(BaseRole):
     def __init__(self, player_id: str, config: Dict[str, Any]):
         super().__init__(player_id, config)
         self.team = Team.VILLAGER
-        self.check_count = 0  # 查验次数
-        self.last_check_result = None  # 上次查验结果
-        self.cooldowns = {
-            'check': 0  # 查验冷却
-        }
+        self.check_count = 0  # 查验次数
+        self.last_check_result = None  # 上次查验结果
+        # 确保使用配置中的查验冷却；若未配置则默认0
+        self.cooldowns.setdefault('check', 0)
         # 确保SEER_CONFIG存在
         if 'SEER_CONFIG' not in self.config:
             self.config['SEER_CONFIG'] = {}

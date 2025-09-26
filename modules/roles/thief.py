@@ -11,9 +11,11 @@ class Thief(BaseRole):
         self.team = Team.NEUTRAL
         self.has_stolen = False  # 是否已经偷取角色
         self.stolen_role = None  # 偷取的角色
-        self.cooldowns = {
-            'steal': config.get('ROLE_COOLDOWNS', {}).get('thief', {}).get('steal', 999)
-        }
+
+        if 'THIEF_CONFIG' not in self.config:
+            self.config['THIEF_CONFIG'] = {}
+        self.config['THIEF_CONFIG'].setdefault('stealable_roles', ['werewolf', 'villager'])
+        self.config['THIEF_CONFIG'].setdefault('must_steal', True)
         
     def can_steal(self, role_name: str) -> bool:
         """检查是否可以偷取角色

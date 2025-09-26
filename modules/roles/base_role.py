@@ -1,4 +1,5 @@
 from typing import Dict, Any, Optional
+
 from core.engine.victory_checker import Team
 from core.engine.phase_manager import GamePhase
 
@@ -15,15 +16,18 @@ class BaseRole:
             'silenced': False,
             'poisoned': False
         }
-        self.cooldowns = {}  # 技能冷却
+        self.cooldowns: Dict[str, int] = {}  # 技能当前冷却
+        self.cooldown_defaults: Dict[str, int] = {}  # 技能冷却配置值
         self.game_state = None  # 初始化游戏状态为None
         self._initialize_cooldowns()  # 初始化技能冷却
         
     def _initialize_cooldowns(self):
         """初始化技能冷却"""
         role_name = self.__class__.__name__.lower()
-        if 'ROLE_COOLDOWNS' in self.config and role_name in self.config['ROLE_COOLDOWNS']:
-            self.cooldowns = self.config['ROLE_COOLDOWNS'][role_name].copy()
+        role_cooldowns = self.config.get('ROLE_COOLDOWNS', {}).get(role_name)
+        if role_cooldowns:
+            self.cooldown_defaults = role_cooldowns.copy()
+            self.cooldowns = {skill: 0 for skill in role_cooldowns}
             
     def update_cooldowns(self, current_phase: GamePhase):
         """更新技能冷却
@@ -72,10 +76,12 @@ class BaseRole:
             return False
                 
         # 重置技能冷却
-        role_name = self.__class__.__name__.lower()
-        if role_name in self.config['ROLE_COOLDOWNS']:
-            self.cooldowns[skill_name] = self.config['ROLE_COOLDOWNS'][role_name][skill_name]
-        
+        default_cooldown = self.cooldown_defaults.get(skill_name)
+        if default_cooldown is not None:
+            self.cooldowns[skill_name] = default_cooldown
+        else:
+            self.cooldowns[skill_name] = 0
+
         return True
         
     def handle_death(self, game_loop):
