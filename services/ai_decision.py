@@ -1,7 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-import openai
 from openai import OpenAI
 from typing import Dict, Any, Optional
 from utils.logger import logger
@@ -18,11 +17,12 @@ class AIDecisionService:
         """
         # 从环境变量获取配置
         self.ai_provider = os.getenv("AI_PROVIDER", "openai")  # 新增AI提供商配置
-        self.client = OpenAI(
-            api_key=os.getenv("OPENAI_API_KEY") if self.ai_provider == "openai" else "not-needed",
-            base_url=os.getenv("OPENAI_BASE_URL", "http://localhost:11434/v1")  # Ollama默认地址
+
+        self.client = self._build_client()
+        self.model = os.getenv(
+            "OPENAI_MODEL_NAME",
+            os.getenv("AI_MODEL_NAME", "gpt-4-mini" if self.ai_provider == "openai" else "llama2")
         )
-        self.model = os.getenv("AI_MODEL_NAME", "gpt-4-mini" if self.ai_provider == "openai" else "llama2")
 
     def get_player_action(self, player_id: str, role: str, game_state: Dict[str, Any], phase: str) -> Dict[str, Any]:
         """获取玩家行动决策
@@ -47,10 +47,14 @@ class AIDecisionService:
                 temperature=0.7,
                 max_tokens=400
             )
-            
-            return self._parse_response(response.choices[0].message.content)
+            content = self._extract_choice_content(response, context="action")
+            if content is None:
+                return {"target_id": None}
+
+            decision = self._parse_response(content)
+            return self._normalize_decision(decision, game_state)
         except Exception as e:
-            logger.error(f"AI决策出错: {str(e)}")
+            logger.exception(f"AI决策出错: {str(e)}")
             return {"target_id": None}
             
     def get_player_speech(self, player_id: str, role: str, game_state: Dict[str, Any]) -> Optional[str]:
@@ -75,10 +79,12 @@ class AIDecisionService:
                 temperature=0.7,
                 max_tokens=4096
             )
-            content = response.choices[0].message.content
+            content = self._extract_choice_content(response, context="speech")
+            if content is None:
+                return "我需要更多时间思考。"
             return content.split("</think>")[-1]
         except Exception as e:
-            logger.error(f"AI发言生成出错: {str(e)}")
+            logger.exception(f"AI发言生成出错: {str(e)}")
             return "我需要更多时间思考。"
             
     def _build_prompt(self, player_id: str, role: str, game_state: Dict[str, Any], phase: str) -> str:
@@ -160,11 +166,61 @@ class AIDecisionService:
             # 提取JSON部分
             import re
             content = response.split("</think>")[-1]
-            json_match = re.search(r'\{.*\}', content)
+            json_match = re.search(r'\{.*?\}', content, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
             return {"target_id": None}
-        except:
-            # 如果解析失败，返回空结果
-            logger.error(f"无法解析AI响应: {response}")
-            return {"target_id": None} 
+        except json.JSONDecodeError as decode_error:
+            logger.error(f"AI响应JSON解析失败: {decode_error}; 原始内容: {response}")
+        except Exception as unexpected:
+            logger.exception(f"无法解析AI响应: {response}; 错误: {unexpected}")
+            return {"target_id": None}
+        return {"target_id": None}
+
+    def _extract_choice_content(self, response: Any, context: str) -> Optional[str]:
+        """提取补全内容，若缺失则记录日志"""
+        choices = getattr(response, "choices", None) or []
+        for choice in choices:
+            message = getattr(choice, "message", None)
+            content = getattr(message, "content", None)
+            if content:
+                return content
+
+        logger.error(f"AI响应缺少内容，context={context}; response={response}")
+        return None
+
+    def _build_client(self) -> OpenAI:
+        """根据提供商构建 OpenAI 客户端配置"""
+        api_key = os.getenv("OPENAI_API_KEY") if self.ai_provider == "openai" else "not-needed"
+        # openai 官方客户端在 base_url 为空时使用默认域名
+        default_base_url = None if self.ai_provider == "openai" else "http://localhost:11434/v1"
+        base_url = os.getenv("OPENAI_BASE_URL") or default_base_url
+
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+
+        return OpenAI(**client_kwargs)
+
+    def _normalize_decision(self, decision: Dict[str, Any], game_state: Dict[str, Any]) -> Dict[str, Any]:
+        # 校验并规范化AI输出的目标
+        normalized = dict(decision or {})
+        target = normalized.get('target_id')
+        players = game_state.get('players', {}) if isinstance(game_state, dict) else {}
+
+        if isinstance(target, str):
+            candidate = target.strip()
+            lowered = candidate.lower()
+            if lowered in {'', 'none', 'null', 'skip', 'pass', 'no', 'noone', 'no one', 'n/a'}:
+                normalized['target_id'] = None
+                return normalized
+
+            lookup = {pid.lower(): pid for pid in players.keys()}
+            if lowered in lookup:
+                normalized['target_id'] = lookup[lowered]
+            else:
+                normalized['target_id'] = None
+        else:
+            normalized['target_id'] = None
+
+        return normalized
