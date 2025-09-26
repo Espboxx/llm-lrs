@@ -16,10 +16,11 @@ from modules.roles.guard import Guard
 from utils.logger import logger
 from modules.actions.vote_system import VoteManager
 from services.ai_decision import AIDecisionService
+from services.game_state_store import GameStateStore
 
 class GameLoop:
     """游戏核心循环"""
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], state_store: Optional[GameStateStore] = None):
         ConfigValidator.validate(config)  # 验证配置
         self.phase_manager = PhaseManager()
         self.players: Dict[str, Player] = {}
@@ -32,13 +33,16 @@ class GameLoop:
             'role_changes': {},
             'config': config,  # 添加配置到游戏状态
             'players': {},  # 添加玩家字典引用
-            'speech_history': []  # 添加发言历史记录
+            'speech_history': [],  # 添加发言历史记录
+            'match_id': None,
         }
         self.pending_actions: List[Any] = []  # 待处理动作队列
         self.message_router = MessageRouter()
         self.config = config
         self.vote_manager = VoteManager()  # 添加投票管理器
         self.ai_service = AIDecisionService()  # 初始化AI服务
+        self.state_store = state_store
+        self.match_id: Optional[str] = None
         
     def initialize_game(self, players: list):
         """初始化游戏"""
@@ -59,6 +63,11 @@ class GameLoop:
             
         # 更新游戏状态中的玩家引用
         self.game_state['players'] = self.players
+
+        if self.state_store:
+            self.match_id = self.state_store.start_match(players)
+            self.game_state['match_id'] = self.match_id
+            self._sync_store_players()
             
         # 注册到胜利检查器
         for player in self.players.values():
@@ -107,6 +116,12 @@ class GameLoop:
         while self.phase_manager.current_phase != GamePhase.GAME_OVER:
             current_phase = self.phase_manager.current_phase
             self.game_state['current_phase'] = current_phase
+
+            if self.state_store:
+                self.state_store.set_phase(
+                    getattr(current_phase, "name", str(current_phase)),
+                    self.game_state['round_number']
+                )
             
             # 更新所有存活角色的技能冷却
             for player_id in self.game_state['alive_players']:
@@ -337,6 +352,8 @@ class GameLoop:
             action.execute(self.game_state)
             logger.game_event("DELAYED_ACTION", str(action))
 
+        self._sync_store_players()
+
     def _process_thief_stealing(self):
         """处理盗贼偷换角色"""
         thieves = [p for p in self.players.values() if isinstance(p.role, Thief)]
@@ -351,6 +368,14 @@ class GameLoop:
                     f"盗贼{thief.id}选择了角色{action.extra_data['selected_role']}"
                 )
             
+    def _sync_store_players(self) -> None:
+        """同步状态存储中的玩家列表。"""
+        if self.state_store:
+            self.state_store.update_players(
+                self.game_state['alive_players'],
+                self.game_state['dead_players']
+            )
+
     def _get_stealable_roles(self) -> list:
         """获取可偷换角色"""
         return self.config.get(
@@ -415,6 +440,18 @@ class GameLoop:
                     'content': speech,
                     'round': self.game_state['round_number']
                 })
+                if self.state_store:
+                    self.state_store.record_speech(
+                        player_id=player_id,
+                        role=type(self.players[player_id].role).__name__.lower(),
+                        content=speech,
+                        round_number=self.game_state['round_number'],
+                        phase=getattr(
+                            self.game_state['current_phase'],
+                            "name",
+                            str(self.game_state['current_phase'])
+                        ),
+                    )
                 logger.info(f"{player_id} 说: {speech}")
 
         logger.info("讨论阶段结束，准备进入投票阶段")
@@ -529,6 +566,8 @@ class GameLoop:
             player = self.players[player_id]
             if hasattr(player.role, 'handle_death'):
                 player.role.handle_death(self)
+
+        self._sync_store_players()
 
 class Player:
     """玩家类"""
