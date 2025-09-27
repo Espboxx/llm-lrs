@@ -73,16 +73,45 @@ class GameStateStore:
             match = self._get_active_match()
             if match is None:
                 return
-            match["speech_log"].append(
-                {
-                    "player_id": player_id,
-                    "role": role,
-                    "content": content,
-                    "round": round_number,
-                    "phase": phase,
-                    "timestamp": _utc_iso(),
-                }
-            )
+            entry = {
+                "player_id": player_id,
+                "role": role,
+                "content": content,
+                "round": round_number,
+                "phase": phase,
+                "speaker_type": "player",
+                "display_name": player_id,
+                "channel": "speech",
+            }
+            self._append_log_entry(match, entry)
+
+    def record_system_event(
+        self,
+        *,
+        content: str,
+        channel: str,
+        round_number: Optional[int] = None,
+        phase: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """记录一条系统（上帝）发言。"""
+        with self._lock:
+            match = self._get_active_match()
+            if match is None:
+                return
+            entry: Dict[str, Any] = {
+                "player_id": None,
+                "role": None,
+                "content": content,
+                "round": round_number,
+                "phase": phase,
+                "speaker_type": "system",
+                "display_name": "上帝",
+                "channel": channel,
+            }
+            if metadata:
+                entry["metadata"] = metadata
+            self._append_log_entry(match, entry)
 
     def list_matches(self) -> List[Dict[str, Any]]:
         """返回可供观战的对局概要列表。"""
@@ -112,6 +141,18 @@ class GameStateStore:
             result = deepcopy(payload)
             result["match_id"] = resolved_id
             return result
+
+    def _append_log_entry(self, match: Dict[str, Any], entry: Dict[str, Any]) -> None:
+        payload = dict(entry)
+        payload.setdefault("timestamp", _utc_iso())
+        payload.setdefault("round", match.get("round"))
+        payload.setdefault("phase", match.get("phase"))
+        payload.setdefault("channel", "speech")
+        if "metadata" in payload and payload["metadata"] is not None:
+            payload["metadata"] = deepcopy(payload["metadata"])
+        payload.setdefault("speaker_type", "player")
+        payload.setdefault("display_name", payload.get("player_id"))
+        match["speech_log"].append(payload)
 
     def _get_active_match(self) -> Optional[Dict[str, Any]]:
         if self._active_match_id is None:

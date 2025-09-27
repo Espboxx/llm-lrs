@@ -43,7 +43,40 @@ class GameLoop:
         self.ai_service = AIDecisionService()  # 初始化AI服务
         self.state_store = state_store
         self.match_id: Optional[str] = None
+        self._register_state_store_handlers()
         
+    def _register_state_store_handlers(self) -> None:
+        if not self.state_store:
+            return
+        for channel in ("system", "phase_change"):
+            self.message_router.register_handler(
+                channel,
+                lambda message, ch=channel: self._handle_router_message(ch, message),
+            )
+
+    def _handle_router_message(self, channel: str, message: Dict[str, Any]) -> None:
+        if not self.state_store:
+            return
+        metadata = message.get("metadata") or {}
+        if "round" in metadata and metadata["round"] is not None:
+            round_number = metadata["round"]
+        else:
+            round_number = self.game_state.get("round_number")
+        phase = metadata.get("phase")
+        if phase is None:
+            current_phase = self.game_state.get("current_phase")
+            if current_phase is not None:
+                phase = getattr(current_phase, "name", str(current_phase))
+        content = message.get("content", "")
+        metadata_to_store = metadata if metadata else None
+        self.state_store.record_system_event(
+            content=content,
+            channel=channel,
+            round_number=round_number,
+            phase=phase,
+            metadata=metadata_to_store,
+        )
+
     def initialize_game(self, players: list):
         """初始化游戏"""
         # 记录游戏开始
@@ -96,7 +129,11 @@ class GameLoop:
         self.message_router.broadcast(
             start_msg.strip(),
             channel="system",
-            recipients=self.game_state['alive_players']
+            recipients=self.game_state['alive_players'],
+            metadata={
+                "phase": "系统公告",
+                "round": self.game_state['round_number'],
+            },
         )
         logger.info("游戏初始化完成")
         
@@ -144,7 +181,11 @@ class GameLoop:
             self.message_router.broadcast(
                 notification,
                 channel="phase_change",
-                recipients=self.game_state['alive_players']
+                recipients=self.game_state['alive_players'],
+                metadata={
+                    "phase": phase_info.get('description'),
+                    "round": self.game_state['round_number'],
+                },
             )
             
             # 处理当前阶段

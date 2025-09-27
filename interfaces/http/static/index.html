@@ -89,22 +89,6 @@
             justify-content: space-between;
             align-items: center;
         }
-        .event {
-            padding: 16px;
-            border-bottom: 1px solid #f1f5f9;
-            display: grid;
-            gap: 4px;
-        }
-        .event:last-child {
-            border-bottom: none;
-        }
-        .event-player {
-            font-weight: 600;
-        }
-        .event-content {
-            white-space: pre-wrap;
-            line-height: 1.4;
-        }
         .empty {
             text-align: center;
             color: #64748b;
@@ -112,12 +96,78 @@
             background: #fff;
             border-radius: 8px;
         }
+
+        .event {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 16px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .event:last-child {
+            border-bottom: none;
+        }
+        .event-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            background: #1f6feb;
+            flex-shrink: 0;
+        }
+        .event-body {
+            flex: 1;
+            display: grid;
+            gap: 8px;
+        }
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .event-speaker {
+            font-weight: 600;
+        }
+        .event-meta {
+            font-size: 12px;
+            color: #64748b;
+        }
+        .event-content {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+        .event--system {
+            background: #ecfdf5;
+            border-left: 4px solid #34d399;
+        }
+        .event--system .event-avatar {
+            background: #34d399;
+        }
+        .event--system .event-content {
+            background: transparent;
+            color: #047857;
+            padding-left: 0;
+        }
+        .empty {
+            box-shadow: 0 2px 4px rgba(15, 23, 42, 0.05);
+            border-radius: 12px;
+        }
     </style>
 </head>
 <body>
     <header>
         <h1>狼人杀对局观战面板</h1>
-        <p>实时查看各位玩家在讨论阶段的发言。</p>
+        <p>实时查看各位玩家在讨论阶段的发言以及系统提示。</p>
     </header>
     <main>
         <section class="controls">
@@ -266,28 +316,12 @@
                 const title = document.createElement('span');
                 title.textContent = `第 ${roundKey} 轮`;
                 const count = document.createElement('span');
-                count.textContent = `${events.length} 条发言`;
+                count.textContent = `${events.length} 条记录`;
                 header.append(title, count);
                 roundCard.appendChild(header);
 
                 events.forEach(event => {
-                    const eventEl = document.createElement('div');
-                    eventEl.className = 'event';
-
-                    const player = document.createElement('span');
-                    player.className = 'event-player';
-                    player.textContent = `玩家 ${event.player_id} (${event.role})`;
-
-                    const phase = document.createElement('span');
-                    phase.className = 'event-phase';
-                    phase.textContent = `${event.phase || ''} · ${new Date(event.timestamp).toLocaleTimeString()}`;
-
-                    const content = document.createElement('div');
-                    content.className = 'event-content';
-                    content.textContent = event.content;
-
-                    eventEl.append(player, phase, content);
-                    roundCard.appendChild(eventEl);
+                    roundCard.appendChild(createEventElement(event));
                 });
 
                 logContainer.appendChild(roundCard);
@@ -310,8 +344,15 @@
         }
 
         function groupByRound(events) {
+            const sorted = [...events].sort((a, b) => {
+                const parsedA = a.timestamp ? Date.parse(a.timestamp) : 0;
+                const parsedB = b.timestamp ? Date.parse(b.timestamp) : 0;
+                const timeA = Number.isNaN(parsedA) ? 0 : parsedA;
+                const timeB = Number.isNaN(parsedB) ? 0 : parsedB;
+                return timeA - timeB;
+            });
             const map = new Map();
-            events.forEach(event => {
+            sorted.forEach(event => {
                 const round = event.round ?? '未知';
                 if (!map.has(round)) {
                     map.set(round, []);
@@ -319,6 +360,76 @@
                 map.get(round).push(event);
             });
             return map;
+        }
+
+        function formatSpeakerLabel(event, speakerType) {
+            if (speakerType === 'system') {
+                return event.display_name || '上帝';
+            }
+            const name = event.display_name || event.player_id || '未知玩家';
+            return event.role ? `${name} (${event.role})` : name;
+        }
+
+        function formatMeta(event) {
+            const parts = [];
+            if (event.phase) {
+                parts.push(event.phase);
+            }
+            if (event.timestamp) {
+                parts.push(new Date(event.timestamp).toLocaleTimeString());
+            }
+            const channel = event.channel || 'speech';
+            if (channel !== 'speech') {
+                parts.push(`#${channel}`);
+            }
+            return parts.join(' · ') || '-';
+        }
+
+        function getAvatarText(event, speakerType) {
+            if (speakerType === 'system') {
+                return '神';
+            }
+            const name = event.display_name || event.player_id || '?';
+            return name.charAt(0).toUpperCase();
+        }
+
+        function createEventElement(event) {
+            const speakerType = event.speaker_type || 'player';
+            const wrapper = document.createElement('div');
+            wrapper.className = 'event';
+            wrapper.dataset.speakerType = speakerType;
+            wrapper.dataset.channel = event.channel || 'speech';
+            if (speakerType === 'system') {
+                wrapper.classList.add('event--system');
+            }
+
+            const avatar = document.createElement('div');
+            avatar.className = 'event-avatar';
+            avatar.textContent = getAvatarText(event, speakerType);
+            avatar.setAttribute('aria-hidden', 'true');
+
+            const body = document.createElement('div');
+            body.className = 'event-body';
+
+            const header = document.createElement('div');
+            header.className = 'event-header';
+            const speaker = document.createElement('span');
+            speaker.className = 'event-speaker';
+            speaker.textContent = formatSpeakerLabel(event, speakerType);
+            const meta = document.createElement('span');
+            meta.className = 'event-meta';
+            meta.textContent = formatMeta(event);
+
+            header.append(speaker, meta);
+
+            const content = document.createElement('div');
+            content.className = 'event-content';
+            content.textContent = event.content || '';
+
+            body.append(header, content);
+            wrapper.append(avatar, body);
+
+            return wrapper;
         }
 
         matchSelect.addEventListener('change', event => {
