@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>投票 / 指控 关系图 · 狼人杀观战</title>
+  <link rel="icon" href="data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3e%3ccircle cx='16' cy='16' r='14' fill='none' stroke='%231f6feb' stroke-width='2'/%3e%3ctext x='16' y='21' text-anchor='middle' font-family='Segoe UI' font-size='14' fill='%231f6feb'%3eG%3c/text%3e%3c/svg%3e">
+  <style>
+    :root {
+      --bg: #f4f6fa;
+      --fg: #0b1320;
+      --panel: #ffffff;
+      --muted: #64748b;
+      --brand: #1f6feb;
+      --ok: #10b981;   /* alive */
+      --dead: #94a3b8; /* dead  */
+      --vote: #2563eb;
+      --accuse: #f59e0b;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b1320; --fg: #e5e7eb; --panel: #0f1f3a; --muted: #93a4c4;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); }
+    header { background: var(--brand); color: #fff; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    header .brand { display:flex; align-items:center; gap: 10px; }
+    header .logo { width: 26px; height: 26px; border-radius: 6px; background:#0e4fb7; display:flex; align-items:center; justify-content:center; font-weight:700; }
+    header h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: .3px; }
+    header .actions { display:flex; align-items:center; gap: 8px; }
+    header a { color: #fff; opacity: .9; text-decoration: none; }
+    main { padding: 18px; max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: start; }
+    @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+    .panel { background: var(--panel); border-radius: 12px; box-shadow: 0 2px 8px rgba(15,23,42,.10); padding: 14px; }
+    .controls { display: grid; gap: 12px; }
+    .field { display: grid; gap: 6px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    label { font-weight: 600; font-size: 13px; color: var(--muted); }
+    select, button, input[type="checkbox"] { font-size: 14px; }
+    select, button { padding: 8px 10px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; color: #0b1320; }
+    button { background: var(--brand); color: #fff; border: none; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .button-secondary { background: transparent; color: var(--brand); border: 1px solid #90b4f7; }
+    .button-secondary:disabled { color: var(--muted); border-color: #cbd5e1; }
+    .hint { font-size: 12px; color: var(--muted); }
+    .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 999px; margin-right: 6px; vertical-align: -1px; }
+    #cy { height: calc(100vh - 120px); min-height: 520px; width: 100%; background: var(--panel); border-radius: 12px; box-shadow: 0 2px 10px rgba(15,23,42,.10); }
+    .error { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; padding: 12px; border-radius: 12px; }
+  </style>
+  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  <script>
+    // --- 小工具：字符串规范化/映射 ---
+    function normPhase(p) {
+      if (!p) return 'unknown';
+      const s = (''+p).toLowerCase();
+      if (s.includes('day') || s.includes('白')) return 'day';
+      if (s.includes('night') || s.includes('夜')) return 'night';
+      return s;
+    }
+    function buildSeatNumberMap(players) {
+      // 映射座号数字 -> 玩家ID（仅当ID形如 P08/P8/8号/Player8 时做近似匹配）
+      const m = new Map();
+      for (const pid of players || []) {
+        const digits = (''+pid).match(/\d{1,2}/);
+        if (digits) m.set(parseInt(digits[0], 10), pid);
+      }
+      return m;
+    }
+    function tryParseEdgeFromText(text, players) {
+      if (!text || !players || players.length === 0) return null;
+      const seatMap = buildSeatNumberMap(players);
+      const patterns = [
+        /(?:^|\b)(?:p|P)?(\d{1,2})\s*(?:号)?\s*(?:投票|投|票给|票向|指控|指|怀疑|对|→|->|=>)\s*(?:p|P)?(\d{1,2})(?:号)?/,
+        /(?:^|\b)(?:p|P)?(\d{1,2})\s*[-=]>\s*(?:p|P)?(\d{1,2})/
+      ];
+      for (const re of patterns) {
+        const m = text.match(re);
+        if (m) {
+          const a = parseInt(m[1], 10); const b = parseInt(m[2], 10);
+          const from = seatMap.get(a); const to = seatMap.get(b);
+          if (from && to) return { from, to, type: 'parsed' };
+        }
+      }
+      return null;
+    }
+
+    // --- API ---
+    async function fetchJSON(url) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return await r.json();
+    }
+
+    async function postJSON(url, payload) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = data && data.error ? data.error : `${r.status} ${r.statusText}`;
+        throw new Error(msg);
+      }
+      return data;
+    }
+
+    async function listMatches() {
+      const data = await fetchJSON('/api/matches');
+      return (data && data.matches) || [];
+    }
+
+    async function getMatch(matchId) {
+      const data = await fetchJSON(`/api/matches/${matchId}/speech-log`);
+      return data || null;
+    }
+
+    // --- Graph 构建 ---
+    function buildGraph(match, filters) {
+      const players = match.players || match.alive_players || [];
+      const alive = new Set(match.alive_players || []);
+      const dead = new Set(match.dead_players || []);
+      const nodes = players.map(pid => ({ data: { id: pid, label: pid, status: alive.has(pid) ? 'alive' : (dead.has(pid) ? 'dead' : 'unknown') } }));
+
+      const allowTypes = new Set(filters.types); // ['vote','accuse']
+      const onlyCurrentRound = filters.scope === 'current';
+      const roundNow = match.round;
+      const phaseFilter = filters.phase; // 'all'|'day'|'night'
+
+      const edgesMap = new Map(); // key: from->to
+      for (const e of (match.speech_log || [])) {
+        const phase = normPhase(e.phase);
+        if (phaseFilter !== 'all' && phase !== phaseFilter) continue;
+        if (onlyCurrentRound && e.round != null && roundNow != null && e.round !== roundNow) continue;
+
+        let from = null, to = null, etype = null;
+        if (e.speaker_type === 'system' && e.channel) {
+          const ch = (''+e.channel).toLowerCase();
+          if (allowTypes.has(ch)) {
+            etype = ch;
+            const md = e.metadata || {};
+            from = md.from || md.source || md.src || null;
+            to   = md.to   || md.target || md.dst || null;
+          }
+        }
+        if (!from || !to) {
+          if (filters.enableHeuristic) {
+            const parsed = tryParseEdgeFromText(e.content, players);
+            if (parsed) { from = parsed.from; to = parsed.to; etype = etype || 'accuse'; }
+          }
+        }
+        if (!from || !to) continue;
+        if (!players.includes(from) || !players.includes(to)) continue;
+
+        const key = `${from}->${to}`;
+        const item = edgesMap.get(key) || { source: from, target: to, count: 0, types: new Set(), rounds: new Set(), phases: new Set() };
+        item.count += 1;
+        if (etype) item.types.add(etype);
+        if (e.round != null) item.rounds.add(e.round);
+        if (phase) item.phases.add(phase);
+        edgesMap.set(key, item);
+      }
+
+      const edges = [];
+      for (const [key, v] of edgesMap) {
+        let etype = 'mixed';
+        if (v.types.size === 1) etype = [...v.types][0];
+        const weight = Math.min(10, Math.max(1, v.count));
+        edges.push({ data: { id: key, source: v.source, target: v.target, weight, etype, count: v.count } });
+      }
+
+      return { nodes, edges };
+    }
+
+    function mountCytoscape(container, graph, layout) {
+      const cy = cytoscape({
+        container,
+        elements: { nodes: graph.nodes, edges: graph.edges },
+        style: [
+          { selector: 'node', style: {
+              'background-color': ele => {
+                const s = ele.data('status');
+                if (s === 'alive') return 'var(--ok)';
+                if (s === 'dead')  return 'var(--dead)';
+                return '#a3a3a3';
+              },
+              'label': 'data(label)', 'color': '#0b1320', 'font-size': 10,
+              'text-valign':'center', 'text-halign':'center', 'text-background-opacity': 0,
+              'width': 26, 'height': 26,
+            }
+          },
+          { selector: 'edge', style: {
+              'curve-style': 'bezier', 'opacity': 0.9,
+              'width': 'mapData(weight, 1, 10, 1, 8)',
+              'line-color': ele => (ele.data('etype') === 'vote' ? 'var(--vote)' : (ele.data('etype') === 'accuse' ? 'var(--accuse)' : '#8b5cf6')),
+              'target-arrow-color': ele => (ele.data('etype') === 'vote' ? 'var(--vote)' : (ele.data('etype') === 'accuse' ? 'var(--accuse)' : '#8b5cf6')),
+              'target-arrow-shape': 'triangle', 'arrow-scale': 1.1,
+              'label': ele => `${ele.data('count')}`,
+              'font-size': 8, 'color': '#334155', 'text-background-opacity': 0,
+            }
+          },
+          { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#f59e0b' } },
+          { selector: 'edge:selected', style: { 'line-color': '#ef4444', 'target-arrow-color': '#ef4444' } },
+        ],
+        wheelSensitivity: 0.25
+      });
+      cy.layout(layout).run();
+      cy.on('tap', 'node', e => {
+        const n = e.target; const id = n.id();
+        const connected = cy.elements().filter(el => el.data('source') === id || el.data('target') === id);
+        cy.elements().not(connected).not(n).addClass('faded');
+        connected.removeClass('faded'); n.removeClass('faded');
+      });
+      cy.on('tap', e => { if (e.target === cy) cy.elements().removeClass('faded'); });
+      return cy;
+    }
+  </script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo" aria-hidden="true">G</div>
+      <h1>投票 / 指控 关系图</h1>
+    </div>
+    <div class="actions">
+      <a href="/">返回时间轴视图</a>
+    </div>
+  </header>
+  <main>
+    <section class="panel">
+      <div class="controls">
+        <div class="field">
+          <label for="matchSelect">对局</label>
+          <select id="matchSelect"></select>
+          <div class="hint">默认选择最新创建的对局</div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="layoutSelect">布局</label>
+            <select id="layoutSelect">
+              <option value="cose">力导向（COSE）</option>
+              <option value="circle">环形</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="scopeSelect">范围</label>
+            <select id="scopeSelect">
+              <option value="all">全部轮次</option>
+              <option value="current">仅本轮</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="phaseSelect">阶段</label>
+            <select id="phaseSelect">
+              <option value="all">全部</option>
+              <option value="day">白天</option>
+              <option value="night">夜晚</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <label><input type="checkbox" id="typeVote" checked/> 投票</label>
+          <label><input type="checkbox" id="typeAccuse" checked/> 指控</label>
+          <label><input type="checkbox" id="enableHeuristic"/> 启用文本解析（无结构化事件时）</label>
+        </div>
+        <div class="row">
+          <button id="startBtn">开始对局</button>
+          <button id="pauseBtn" class="button-secondary">暂停</button>
+          <button id="resumeBtn" class="button-secondary">继续</button>
+          <button id="saveBtn" class="button-secondary">保存对局</button>
+        </div>
+        <div class="row">
+          <label for="saveSelect">加载存档</label>
+          <select id="saveSelect">
+            <option value="">选择存档</option>
+          </select>
+          <button id="loadBtn" class="button-secondary">加载对局</button>
+        </div>
+        <div class="row">
+          <button id="refreshBtn" class="button-secondary">手动刷新</button>
+          <button id="autoBtn">开启自动刷新</button>
+        </div>
+        <div class="legend">
+          <span><span class="dot" style="background: var(--ok)"></span>存活</span>
+          <span><span class="dot" style="background: var(--dead)"></span>死亡</span>
+          <span><span class="dot" style="background: var(--vote)"></span>投票</span>
+          <span><span class="dot" style="background: var(--accuse)"></span>指控</span>
+        </div>
+        <div id="statusHint" class="hint"></div>
+        <div id="msg" class="hint"></div>
+        <div id="err" class="error" style="display:none"></div>
+      </div>
+    </section>
+    <section class="panel" style="padding:0">
+      <div id="cy"></div>
+    </section>
+  </main>
+
+  <script>
+    let cy = null; let timer = null; let currentMatchId = null; let statusTimer = null; let latestStatus = null;
+    function getLayoutConfig(kind) {
+      if (kind === 'circle') return { name: 'circle', padding: 20, avoidOverlap: true };
+      return { name: 'cose', animate: true, padding: 20, componentSpacing: 40, nodeRepulsion: 8000 };
+    }
+
+    function getFilters() {
+      return {
+        types: [ document.getElementById('typeVote').checked ? 'vote' : null,
+                 document.getElementById('typeAccuse').checked ? 'accuse' : null ].filter(Boolean),
+        scope: document.getElementById('scopeSelect').value, // all|current
+        phase: document.getElementById('phaseSelect').value, // all|day|night
+        enableHeuristic: document.getElementById('enableHeuristic').checked
+      };
+    }
+
+    function translateState(state) {
+      if (!state) return '待开始';
+      const map = {
+        running: '进行中',
+        paused: '已暂停',
+        finished: '已结束',
+        idle: '待开始',
+        error: '错误',
+        stopping: '停止中',
+        stopped: '已停止',
+      };
+      return map[state.toLowerCase ? state.toLowerCase() : state] || state;
+    }
+
+    function translatePhase(phase) {
+      if (!phase) return '-';
+      const map = {
+        WAITING: '等待开始',
+        DAY_DISCUSSION: '白天讨论',
+        DAY_VOTE: '白天投票',
+        NIGHT: '夜晚行动',
+        GAME_OVER: '游戏结束',
+      };
+      return map[phase] || phase;
+    }
+
+    function applyStatus(status) {
+      const hint = document.getElementById('statusHint');
+      const startBtn = document.getElementById('startBtn');
+      const pauseBtn = document.getElementById('pauseBtn');
+      const resumeBtn = document.getElementById('resumeBtn');
+      const saveBtn = document.getElementById('saveBtn');
+
+      latestStatus = status || null;
+
+      if (!status || status.error) {
+        hint.textContent = status && status.error ? `状态异常：${status.error}` : '控制器未就绪。请确认后端已启动。';
+        startBtn.disabled = true;
+        pauseBtn.disabled = true;
+        resumeBtn.disabled = true;
+        saveBtn.disabled = true;
+        return;
+      }
+
+      const parts = [`状态：${translateState(status.state)}`];
+      if (status.phase) parts.push(`阶段：${translatePhase(status.phase)}`);
+      if (typeof status.round !== 'undefined' && status.round !== null) parts.push(`轮次：${status.round}`);
+      if (status.match_id) parts.push(`对局：${(status.match_id || '').slice(0, 8)}`);
+      if (status.last_error) parts.push(`错误：${status.last_error}`);
+      hint.textContent = parts.join(' · ');
+
+      startBtn.disabled = Boolean(status.is_running);
+      pauseBtn.disabled = !(status.is_running && !status.is_paused);
+      resumeBtn.disabled = !(status.is_running && status.is_paused);
+      saveBtn.disabled = !status.match_id;
+    }
+
+    async function refreshStatus({ silent = false } = {}) {
+      try {
+        const status = await fetchJSON('/api/game/status');
+        applyStatus(status);
+      } catch (e) {
+        if (!silent) {
+          applyStatus({ error: e && e.message ? e.message : String(e) });
+        }
+      }
+    }
+
+    async function refreshSaves() {
+      const select = document.getElementById('saveSelect');
+      if (!select) return;
+      try {
+        const data = await fetchJSON('/api/game/saves');
+        const saves = (data && data.saves) || [];
+        const current = select.value;
+        select.innerHTML = '<option value="">选择存档</option>';
+        saves
+          .slice()
+          .sort((a, b) => (b.modified || '').localeCompare(a.modified || ''))
+          .forEach(save => {
+            const opt = document.createElement('option');
+            opt.value = save.filename;
+            const modified = save.modified ? save.modified.replace('T', ' ').split('.')[0] : '';
+            opt.textContent = modified ? `${save.filename} · ${modified}` : save.filename;
+            select.appendChild(opt);
+          });
+        if (current && saves.some(s => s.filename === current)) {
+          select.value = current;
+        }
+      } catch (e) {
+        select.innerHTML = '<option value="">存档不可用</option>';
+      }
+    }
+
+    async function reloadMatches(preserveSelection = true) {
+      const matches = await listMatches();
+      const sel = document.getElementById('matchSelect');
+      const previous = preserveSelection ? (sel.value || currentMatchId) : null;
+      sel.innerHTML = '';
+      matches.sort((a,b) => (a.created_at||'').localeCompare(b.created_at||''));
+      if (matches.length === 0) {
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.textContent = '暂无对局';
+        sel.appendChild(emptyOpt);
+        currentMatchId = null;
+        return matches;
+      }
+      matches.forEach(m => {
+        const o = document.createElement('option');
+        o.value = m.match_id;
+        o.textContent = `${m.match_id.slice(0,8)} · R${m.round||'?'} · ${m.phase||'-'}`;
+        sel.appendChild(o);
+      });
+
+      const fallback = matches.length ? matches[matches.length - 1].match_id : null;
+      if (previous && matches.some(m => m.match_id === previous)) {
+        currentMatchId = previous;
+      } else {
+        currentMatchId = fallback;
+      }
+      if (currentMatchId) sel.value = currentMatchId;
+      return matches;
+    }
+
+    async function handleStart() {
+      const msg = document.getElementById('msg');
+      try {
+        const data = await postJSON('/api/game/start', {});
+        await refreshStatus();
+        const matches = await reloadMatches(false);
+        const newMatchId = data.match_id || (matches.length ? matches[matches.length - 1].match_id : null);
+        if (newMatchId) {
+          currentMatchId = newMatchId;
+          document.getElementById('matchSelect').value = newMatchId;
+        }
+        await refreshGraph();
+        msg.textContent = newMatchId ? `已启动对局：${newMatchId.slice(0,8)}` : '已启动新对局';
+      } catch (e) {
+        msg.textContent = `启动失败：${e && e.message ? e.message : e}`;
+      }
+    }
+
+    async function handlePause() {
+      const msg = document.getElementById('msg');
+      try {
+        const status = await postJSON('/api/game/pause', {});
+        applyStatus(status);
+        msg.textContent = '对局已暂停';
+      } catch (e) {
+        msg.textContent = `暂停失败：${e && e.message ? e.message : e}`;
+      }
+    }
+
+    async function handleResume() {
+      const msg = document.getElementById('msg');
+      try {
+        const status = await postJSON('/api/game/resume', {});
+        applyStatus(status);
+        msg.textContent = '对局已继续';
+      } catch (e) {
+        msg.textContent = `继续失败：${e && e.message ? e.message : e}`;
+      }
+    }
+
+    async function handleSave() {
+      const msg = document.getElementById('msg');
+      try {
+        const data = await postJSON('/api/game/save', {});
+        msg.textContent = `已保存存档：${data.filename}`;
+        await refreshSaves();
+      } catch (e) {
+        msg.textContent = `保存失败：${e && e.message ? e.message : e}`;
+      }
+    }
+
+    async function handleLoad() {
+      const msg = document.getElementById('msg');
+      const select = document.getElementById('saveSelect');
+      const filename = select.value;
+      if (!filename) {
+        msg.textContent = '请选择要加载的存档';
+        return;
+      }
+      try {
+        const data = await postJSON('/api/game/load', { filename });
+        await refreshSaves();
+        await reloadMatches(false);
+        if (data.match_id) {
+          currentMatchId = data.match_id;
+          document.getElementById('matchSelect').value = data.match_id;
+        }
+        await refreshGraph();
+        await refreshStatus();
+        msg.textContent = data.match_id ? `已加载存档，对局ID：${data.match_id.slice(0,8)}` : '已加载存档';
+      } catch (e) {
+        msg.textContent = `加载失败：${e && e.message ? e.message : e}`;
+      }
+    }
+
+    async function refreshGraph() {
+      const err = document.getElementById('err'); err.style.display = 'none'; err.textContent = '';
+      const msg = document.getElementById('msg');
+      try {
+        const mid = document.getElementById('matchSelect').value || currentMatchId;
+        if (!mid) return;
+        currentMatchId = mid;
+        const match = await getMatch(mid);
+        const filters = getFilters();
+        const graph = buildGraph(match, filters);
+        const layout = getLayoutConfig(document.getElementById('layoutSelect').value);
+        const container = document.getElementById('cy');
+        if (!cy) cy = mountCytoscape(container, graph, layout); else {
+          cy.elements().remove();
+          cy.add(graph.nodes);
+          cy.add(graph.edges);
+          cy.layout(layout).run();
+        }
+        if (graph.edges.length === 0) {
+          msg.textContent = '未检测到结构化投票/指控事件。可启用“文本解析”尝试从发言提取（可能不准确）。';
+        }
+      } catch (e) {
+        err.style.display = 'block'; err.textContent = '拉取数据失败：' + (e && e.message ? e.message : e);
+      }
+    }
+
+    async function bootstrap() {
+      const err = document.getElementById('err');
+      err.style.display = 'none'; err.textContent = '';
+      try {
+        await reloadMatches(false);
+      } catch (e) {
+        err.style.display = 'block';
+        err.textContent = '获取对局列表失败：' + (e && e.message ? e.message : e);
+      }
+      await refreshStatus({ silent: true });
+      await refreshSaves();
+      await refreshGraph();
+      if (statusTimer) clearInterval(statusTimer);
+      statusTimer = setInterval(() => refreshStatus({ silent: true }), 4000);
+    }
+
+    document.getElementById('startBtn').addEventListener('click', handleStart);
+    document.getElementById('pauseBtn').addEventListener('click', handlePause);
+    document.getElementById('resumeBtn').addEventListener('click', handleResume);
+    document.getElementById('saveBtn').addEventListener('click', handleSave);
+    document.getElementById('loadBtn').addEventListener('click', handleLoad);
+    document.getElementById('refreshBtn').addEventListener('click', refreshGraph);
+    document.getElementById('layoutSelect').addEventListener('change', refreshGraph);
+    document.getElementById('scopeSelect').addEventListener('change', refreshGraph);
+    document.getElementById('phaseSelect').addEventListener('change', refreshGraph);
+    document.getElementById('typeVote').addEventListener('change', refreshGraph);
+    document.getElementById('typeAccuse').addEventListener('change', refreshGraph);
+    document.getElementById('enableHeuristic').addEventListener('change', refreshGraph);
+    document.getElementById('matchSelect').addEventListener('change', refreshGraph);
+    document.getElementById('autoBtn').addEventListener('click', (e) => {
+      const btn = e.currentTarget;
+      if (timer) { clearInterval(timer); timer = null; btn.textContent = '开启自动刷新'; }
+      else { timer = setInterval(refreshGraph, 3000); btn.textContent = '关闭自动刷新'; }
+    });
+
+    bootstrap();
+  </script>
+</body>
+</html>

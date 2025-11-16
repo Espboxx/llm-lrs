@@ -1,0 +1,52 @@
+{
+  "created_at": "2025-10-11T19:03:43.336568+00:00",
+  "players": [
+    "player1",
+    "player2",
+    "player3",
+    "player4",
+    "player5",
+    "player6",
+    "player7",
+    "player8",
+    "player9",
+    "player10",
+    "player11",
+    "player12"
+  ],
+  "alive_players": [
+    "player1",
+    "player2",
+    "player3",
+    "player4",
+    "player5",
+    "player6",
+    "player7",
+    "player8",
+    "player9",
+    "player10",
+    "player11",
+    "player12"
+  ],
+  "dead_players": [],
+  "phase": null,
+  "round": 1,
+  "speech_log": [
+    {
+      "player_id": null,
+      "role": null,
+      "content": "游戏开始！分配的角色如下：\n玩家 player1: Villager\n玩家 player2: Seer\n玩家 player3: Villager\n玩家 player4: Werewolf\n玩家 player5: Guard\n玩家 player6: Villager\n玩家 player7: Villager\n玩家 player8: Villager\n玩家 player9: Witch\n玩家 player10: Werewolf\n玩家 player11: Werewolf\n玩家 player12: Hunter",
+      "round": 1,
+      "phase": "系统公告",
+      "speaker_type": "system",
+      "display_name": "上帝",
+      "channel": "system",
+      "metadata": {
+        "phase": "系统公告",
+        "round": 1
+      },
+      "timestamp": "2025-10-11T19:03:43.336568+00:00"
+    }
+  ],
+  "match_id": "63f99879963345e9a608d84686f4d485"
+}

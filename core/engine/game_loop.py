@@ -1,6 +1,7 @@
 import time
 import random
-from typing import Dict, Any, List, Tuple, Optional
+from threading import Event, Lock, Thread
+from typing import Dict, Any, List, Tuple, Optional, Callable
 from core.engine.phase_manager import PhaseManager, GamePhase
 from modules.roles.role_factory import RoleFactory
 from modules.roles.cupid import Cupid
@@ -43,12 +44,110 @@ class GameLoop:
         self.ai_service = AIDecisionService()  # 初始化AI服务
         self.state_store = state_store
         self.match_id: Optional[str] = None
+        self._pause_event = Event()
+        self._stop_event = Event()
+        self._status_lock = Lock()
+        self._thread: Optional[Thread] = None
+        self._running = False
+        self._paused = False
+        self._on_finish: Optional[Callable[[], None]] = None
+        self._pause_event.set()
         self._register_state_store_handlers()
+
+    def start_async(self, *, on_finish: Optional[Callable[[], None]] = None) -> Thread:
+        """以后台线程启动游戏循环。"""
+        with self._status_lock:
+            if self._thread and self._thread.is_alive():
+                raise RuntimeError("Game loop is already running")
+            self._stop_event.clear()
+            self._pause_event.set()
+            self._paused = False
+            self._on_finish = on_finish
+            self._thread = Thread(target=self._run_wrapper, daemon=True)
+            self._thread.start()
+            return self._thread
+
+    def wait_for_completion(self, timeout: Optional[float] = None) -> None:
+        thread = None
+        with self._status_lock:
+            thread = self._thread
+        if thread is not None:
+            thread.join(timeout=timeout)
+
+    def pause(self) -> bool:
+        with self._status_lock:
+            if not self._running or self._paused:
+                return False
+            self._paused = True
+            self._pause_event.clear()
+            return True
+
+    def resume(self) -> bool:
+        with self._status_lock:
+            if not self._running or not self._paused:
+                return False
+            self._paused = False
+            self._pause_event.set()
+            return True
+
+    def stop(self) -> bool:
+        with self._status_lock:
+            if not self._running:
+                return False
+            self._stop_event.set()
+            self._pause_event.set()
+            return True
+
+    def is_running(self) -> bool:
+        with self._status_lock:
+            return self._running
+
+    def is_paused(self) -> bool:
+        with self._status_lock:
+            return self._paused
+
+    def _run_wrapper(self) -> None:
+        try:
+            self.run()
+        finally:
+            callback = None
+            with self._status_lock:
+                callback = self._on_finish
+                self._on_finish = None
+                self._thread = None
+            if callback:
+                callback()
+
+    def _prepare_for_run(self) -> None:
+        with self._status_lock:
+            self._stop_event.clear()
+            self._pause_event.set()
+            self._running = True
+            self._paused = False
+
+    def _finalize_run(self) -> None:
+        with self._status_lock:
+            self._running = False
+            self._paused = False
+            self._stop_event.set()
+
+    def _sleep_with_control(self, duration: float) -> None:
+        remaining = max(duration, 0)
+        interval = 0.5
+        while remaining > 0 and not self._stop_event.is_set():
+            if not self._pause_event.wait(timeout=0.1):
+                continue
+            slice_len = min(interval, remaining)
+            if self._stop_event.wait(slice_len):
+                break
+            remaining -= slice_len
         
     def _register_state_store_handlers(self) -> None:
         if not self.state_store:
             return
-        for channel in ("system", "phase_change"):
+        # 将需要对观战面板透出的频道统一注册到状态存储处理器
+        # 包含：系统消息、阶段变更、投票、指控、放逐
+        for channel in ("system", "phase_change", "vote", "accuse", "exile"):
             self.message_router.register_handler(
                 channel,
                 lambda message, ch=channel: self._handle_router_message(ch, message),
@@ -147,87 +246,103 @@ class GameLoop:
 
     def run(self):
         """启动游戏循环"""
+        self._prepare_for_run()
         logger.info("游戏循环开始")
         self.phase_manager.start_game()
-        
-        while self.phase_manager.current_phase != GamePhase.GAME_OVER:
-            current_phase = self.phase_manager.current_phase
-            self.game_state['current_phase'] = current_phase
 
-            if self.state_store:
-                self.state_store.set_phase(
-                    getattr(current_phase, "name", str(current_phase)),
-                    self.game_state['round_number']
+        try:
+            while (
+                not self._stop_event.is_set()
+                and self.phase_manager.current_phase != GamePhase.GAME_OVER
+            ):
+                if not self._pause_event.wait(timeout=0.1):
+                    continue
+                if self._stop_event.is_set():
+                    break
+
+                current_phase = self.phase_manager.current_phase
+                self.game_state['current_phase'] = current_phase
+
+                if self.state_store:
+                    self.state_store.set_phase(
+                        getattr(current_phase, "name", str(current_phase)),
+                        self.game_state['round_number']
+                    )
+            
+                # 更新所有存活角色的技能冷却
+                for player_id in self.game_state['alive_players']:
+                    player = self.players[player_id]
+                    if isinstance(player.role, BaseRole):
+                        player.role.update_cooldowns(current_phase)
+
+                # 发送阶段开始通知
+                phase_info = self.config['PHASE_CONFIG'].get(
+                    current_phase,
+                    {'description': '未知阶段', 'duration': 5}  # 默认5秒
                 )
-            
-            # 更新所有存活角色的技能冷却
-            for player_id in self.game_state['alive_players']:
-                player = self.players[player_id]
-                if isinstance(player.role, BaseRole):
-                    player.role.update_cooldowns(current_phase)
-            
-            # 发送阶段开始通知
-            phase_info = self.config['PHASE_CONFIG'].get(
-                current_phase,
-                {'description': '未知阶段', 'duration': 5}  # 默认5秒
-            )
-            
-            # 显示轮次和阶段信息
-            if current_phase == GamePhase.NIGHT:
-                logger.info(f"=== 第 {self.game_state['round_number']} 轮游戏开始 ===")
-                logger.info(f"存活玩家: {', '.join(self.game_state['alive_players'])}")
-            
-            notification = f"进入{phase_info['description']}，持续{phase_info['duration']}秒"
-            self.message_router.broadcast(
-                notification,
-                channel="phase_change",
-                recipients=self.game_state['alive_players'],
-                metadata={
-                    "phase": phase_info.get('description'),
-                    "round": self.game_state['round_number'],
-                },
-            )
-            
-            # 处理当前阶段
-            if current_phase == GamePhase.NIGHT:
-                self._handle_night_phase()
-            elif current_phase == GamePhase.DAY_DISCUSSION:
-                self._handle_discussion_phase()
-            elif current_phase == GamePhase.DAY_VOTE:
-                self._handle_vote_phase()
-                # 只在投票阶段结束时增加轮次
+
+                # 显示轮次和阶段信息
+                if current_phase == GamePhase.NIGHT:
+                    logger.info(f"=== 第 {self.game_state['round_number']} 轮游戏开始 ===")
+                    logger.info(f"存活玩家: {', '.join(self.game_state['alive_players'])}")
+
+                notification = f"进入{phase_info['description']}，持续{phase_info['duration']}秒"
+                self.message_router.broadcast(
+                    notification,
+                    channel="phase_change",
+                    recipients=self.game_state['alive_players'],
+                    metadata={
+                        "phase": phase_info.get('description'),
+                        "round": self.game_state['round_number'],
+                    },
+                )
+
+                # 处理当前阶段
+                if current_phase == GamePhase.NIGHT:
+                    self._handle_night_phase()
+                elif current_phase == GamePhase.DAY_DISCUSSION:
+                    self._handle_discussion_phase()
+                elif current_phase == GamePhase.DAY_VOTE:
+                    self._handle_vote_phase()
+                    # 只在投票阶段结束时增加轮次
+                    next_phase = self._get_next_phase(current_phase)
+                    if next_phase == GamePhase.NIGHT:
+                        self.game_state['round_number'] += 1
+
+                if self._stop_event.is_set():
+                    break
+
+                # 检查游戏是否结束
+                if self.phase_manager.check_victory():
+                    winner = self.phase_manager.victory_checker.get_winner()
+                    logger.info(f"游戏结束！胜利阵营：{winner}")
+                    logger.info(f"存活玩家: {', '.join(self.game_state['alive_players'])}")
+                    break
+
+                # 检查是否需要继续等待
+                if len(self.game_state['alive_players']) <= 0:
+                    logger.info("所有玩家已死亡，游戏结束")
+                    break
+
+                # 等待阶段时间
+                if phase_info['duration'] > 0:
+                    self._sleep_with_control(phase_info['duration'])
+                    if self._stop_event.is_set():
+                        break
+
+                # 转换到下一个阶段
                 next_phase = self._get_next_phase(current_phase)
-                if next_phase == GamePhase.NIGHT:
-                    self.game_state['round_number'] += 1
-                
-            # 检查游戏是否结束
-            if self.phase_manager.check_victory():
-                winner = self.phase_manager.victory_checker.get_winner()
-                logger.info(f"游戏结束！胜利阵营：{winner}")
-                logger.info(f"存活玩家: {', '.join(self.game_state['alive_players'])}")
-                break
-                
-            # 检查是否需要继续等待
-            if len(self.game_state['alive_players']) <= 0:
-                logger.info("所有玩家已死亡，游戏结束")
-                break
-                
-            # 等待阶段时间
-            if phase_info['duration'] > 0:
-                time.sleep(phase_info['duration'])
-            
-            # 转换到下一个阶段
-            next_phase = self._get_next_phase(current_phase)
-            self.phase_manager.transition_to(next_phase)
-            
-            # 清理阶段状态
-            if current_phase == GamePhase.NIGHT:
-                self.game_state['night_deaths'] = set()
-            elif current_phase == GamePhase.DAY_VOTE:
-                self.game_state['day_deaths'] = set()
-            
-        logger.info(f"=== 游戏在第 {self.game_state['round_number']} 轮结束 ===")
-        logger.info("游戏循环结束")
+                self.phase_manager.transition_to(next_phase)
+
+                # 清理阶段状态
+                if current_phase == GamePhase.NIGHT:
+                    self.game_state['night_deaths'] = set()
+                elif current_phase == GamePhase.DAY_VOTE:
+                    self.game_state['day_deaths'] = set()
+        finally:
+            self._finalize_run()
+            logger.info(f"=== 游戏在第 {self.game_state['round_number']} 轮结束 ===")
+            logger.info("游戏循环结束")
         
     def _get_next_phase(self, current_phase: GamePhase) -> GamePhase:
         """获取下一个游戏阶段"""
@@ -511,6 +626,26 @@ class GameLoop:
             if target_id:
                 self.vote_manager.cast_vote(voter_id, target_id)
                 logger.info(f"{voter_id} 投票给了 {target_id}")
+                # 向观战面板记录结构化的投票事件
+                try:
+                    self.message_router.broadcast(
+                        f"{voter_id} 投票给了 {target_id}",
+                        channel="vote",
+                        recipients=self.game_state['alive_players'],
+                        metadata={
+                            "from": voter_id,
+                            "to": target_id,
+                            "round": self.game_state['round_number'],
+                            "phase": getattr(
+                                self.game_state['current_phase'],
+                                "name",
+                                str(self.game_state['current_phase'])
+                            ),
+                        },
+                    )
+                except Exception:
+                    # 记录失败不影响游戏流程
+                    pass
             else:
                 logger.info(f"{voter_id} 选择弃票")
         
@@ -524,6 +659,24 @@ class GameLoop:
         if vote_result:
             logger.info(f"{vote_result} 被投票处决")
             self._execute_player(vote_result)
+            # 向观战面板记录放逐事件（用于时间轴视觉强化）
+            try:
+                self.message_router.broadcast(
+                    f"{vote_result} 被投票处决",
+                    channel="exile",
+                    recipients=self.game_state['alive_players'],
+                    metadata={
+                        "target": vote_result,
+                        "round": self.game_state['round_number'],
+                        "phase": getattr(
+                            self.game_state['current_phase'],
+                            "name",
+                            str(self.game_state['current_phase'])
+                        ),
+                    },
+                )
+            except Exception:
+                pass
         else:
             logger.info("投票未达成一致，没有人被处决")
         

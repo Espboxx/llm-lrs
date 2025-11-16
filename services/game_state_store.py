@@ -142,6 +142,17 @@ class GameStateStore:
             result["match_id"] = resolved_id
             return result
 
+    def import_match(self, payload: Dict[str, Any], *, activate: bool = False) -> str:
+        """导入一局对局数据，返回新的 match_id。"""
+        with self._lock:
+            match_id = payload.get("match_id") or uuid4().hex
+            data = deepcopy(payload)
+            data["match_id"] = match_id
+            self._matches[match_id] = data
+            if activate:
+                self._active_match_id = match_id
+            return match_id
+
     def _append_log_entry(self, match: Dict[str, Any], entry: Dict[str, Any]) -> None:
         payload = dict(entry)
         payload.setdefault("timestamp", _utc_iso())

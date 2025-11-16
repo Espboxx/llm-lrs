@@ -1,12 +1,12 @@
 import argparse
 import threading
 from pathlib import Path
+from typing import Optional
 
-from core.engine.game_loop import GameLoop
 from config.game_config import PHASE_CONFIG, ROLE_COOLDOWNS
+from services.game_controller import GameController
 from services.game_state_store import GameStateStore
 from utils.logger import logger
-
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,7 +18,11 @@ def parse_args() -> argparse.Namespace:
         "--web-static-dir",
         type=Path,
         default=None,
-        help="自定义静态文件目录（默认使用内置页面）",
+    )
+    parser.add_argument(
+        "--auto-start",
+        action="store_true",
+        help="启动后自动开局（web模式默认等待前端触发）",
     )
     return parser.parse_args()
 
@@ -28,7 +32,7 @@ if __name__ == "__main__":
 
     players = [f"player{i}" for i in range(1, 13)]  # 12人局
 
-    config = {
+    base_config = {
         'PHASE_CONFIG': PHASE_CONFIG,
         'ROLE_COOLDOWNS': ROLE_COOLDOWNS,
         'SEER_CONFIG': {
@@ -53,11 +57,18 @@ if __name__ == "__main__":
         'GUARD_CONFIG': {
             'max_protects': 3
         },
-        'players': players  # 新增玩家列表
+        'players': players,
     }
 
     state_store = GameStateStore() if args.web else None
+    controller = GameController(
+        base_config=base_config,
+        players=players,
+        state_store=state_store,
+        save_dir=Path(__file__).resolve().parent / "logs" / "saves",
+    )
 
+    web_thread: Optional[threading.Thread] = None
     if args.web and state_store is not None:
         from interfaces.http.api import run_app
 
@@ -69,14 +80,23 @@ if __name__ == "__main__":
                 'host': args.web_host,
                 'port': args.web_port,
                 'static_dir': static_dir,
+                'controller': controller,
             },
             daemon=True,
         )
         web_thread.start()
         logger.info(f"观战面板已启动，监听 {args.web_host}:{args.web_port}")
 
-    # 狼人杀标准局12人:
-    # 3狼人、1预言家、1女巫、1猎人、1守卫、5平民
-    game = GameLoop(config, state_store=state_store)
-    game.initialize_game(players)
-    game.run()
+    try:
+        if not args.web or args.auto_start:
+            logger.info("自动启动一局狼人杀对局")
+            controller.start()
+            if not args.web:
+                controller.wait_for_completion()
+        if args.web and web_thread is not None:
+            web_thread.join()
+    except KeyboardInterrupt:
+        logger.info("收到中断信号，准备停止对局")
+        controller.stop()
+    finally:
+        controller.wait_for_completion()

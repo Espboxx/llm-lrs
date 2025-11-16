@@ -20,3 +20,4 @@ Keep secrets in `.env` only; never commit API keys. Default `.env` keys include 
 
 ## 用户规则必须遵守
 - 始终使用中文回答
+- 使用 claude context 查找代码

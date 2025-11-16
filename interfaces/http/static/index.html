@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>狼人杀对局观战面板</title>
-    <style>
+    <link rel="icon" href="data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3e%3ccircle cx='16' cy='16' r='14' fill='none' stroke='%231f6feb' stroke-width='2'/%3e%3ctext x='16' y='21' text-anchor='middle' font-family='Segoe UI' font-size='14' fill='%231f6feb'%3eW%3c/text%3e%3c/svg%3e">
+<style>
         body {
             font-family: "Segoe UI", Helvetica, Arial, sans-serif;
             margin: 0;
@@ -21,20 +22,59 @@
         }
         main {
             padding: 24px;
-            max-width: 960px;
+            max-width: 1200px;
             margin: 0 auto;
         }
-        .controls {
+        .toolbar {
             display: flex;
             flex-wrap: wrap;
-            gap: 12px;
+            gap: 12px 16px;
             align-items: center;
-            margin-bottom: 24px;
-            background: #fff;
-            padding: 16px;
-            border-radius: 8px;
-            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+            margin-bottom: 16px;
         }
+        .toolbar .group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .toolbar .status {
+            margin-left: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 200px;
+            text-align: right;
+        }
+        .app-header {
+            background: #1f6feb;
+            color: #fff;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        .app-header .brand { display: flex; align-items: center; gap: 12px; }
+        .app-header .logo {
+            width: 28px; height: 28px; border-radius: 6px; background:#0e4fb7; display:flex; align-items:center; justify-content:center; font-weight:700;
+        }
+        .app-header h1 { margin: 0; font-size: 18px; }
+        .app-header p { margin: 2px 0 0; font-size: 12px; opacity: .9; }
+        .header-actions { display:flex; align-items:center; gap: 8px; }
+        .header-actions input[type="search"] { padding: 8px 12px; border-radius: 6px; border: 1px solid #90b4f7; min-width: 240px; }
+        .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
+
+        .layout-2col { display: grid; grid-template-columns: 300px 1fr; gap: 16px; }
+        .sidebar.sticky { position: sticky; top: 12px; height: fit-content; align-self: start; }
+
+        /* 紧凑密度模式 */
+        .dense body, body.dense {
+            --dense-scale: .92;
+        }
+        body.dense * { font-size: calc(1rem * var(--dense-scale)); }
+        body.dense .event { padding: 10px; gap: 8px; }
+        body.dense .round-header { padding: 8px 12px; }
         label {
             font-weight: 600;
         }
@@ -86,9 +126,33 @@
             border-bottom: 1px solid #e2e8f0;
             font-weight: 600;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            gap: 12px;
+            cursor: pointer;
         }
+        .round-count {
+            margin-left: auto;
+            font-size: 12px;
+            color: #64748b;
+        }
+        .round-toggle {
+            background: transparent;
+            border: none;
+            color: #1f6feb;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 4px 6px;
+            border-radius: 6px;
+        }
+        .round-toggle:hover,
+        .round-toggle:focus-visible {
+            background: rgba(31, 110, 235, 0.12);
+            outline: none;
+        }
+        .round.collapsed .round-toggle { color: #2563eb; }
+        .round-content { display: grid; }
+        .round.collapsed .round-content { display: none; }
+        .round--hidden { display: none !important; }
         .empty {
             text-align: center;
             color: #64748b;
@@ -106,6 +170,9 @@
         }
         .event:last-child {
             border-bottom: none;
+        }
+        .event--hidden-by-search {
+            display: none !important;
         }
         .event-avatar {
             width: 36px;
@@ -146,6 +213,62 @@
             line-height: 1.5;
             white-space: pre-wrap;
         }
+        .event-extra {
+            margin-top: 12px;
+            background: #f1f5f9;
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 12px;
+            color: #475569;
+        }
+        .event-extra__title {
+            margin: 0 0 6px;
+            font-weight: 600;
+            color: #1f2933;
+        }
+        .event-meta-list {
+            display: grid;
+            grid-template-columns: minmax(72px, 110px) 1fr;
+            gap: 4px 12px;
+            margin: 0;
+        }
+        .event-meta-list dt {
+            font-weight: 600;
+        }
+        .event-meta-list dd {
+            margin: 0;
+            word-break: break-all;
+        }
+        .event-meta-list pre {
+            margin: 0;
+            padding: 6px 8px;
+            border-radius: 6px;
+            background: #e2e8f0;
+            font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        .event-raw {
+            margin-top: 12px;
+            font-size: 12px;
+        }
+        .event-raw summary {
+            cursor: pointer;
+            color: #2563eb;
+            outline: none;
+        }
+        .event-raw summary::-webkit-details-marker { display: none; }
+        .event-raw pre {
+            margin: 8px 0 0;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: #0f172a0d;
+            font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 320px;
+            overflow: auto;
+        }
         .event--system {
             background: #ecfdf5;
             border-left: 4px solid #34d399;
@@ -162,63 +285,375 @@
             box-shadow: 0 2px 4px rgba(15, 23, 42, 0.05);
             border-radius: 12px;
         }
+        /* 新增布局与组件样式 */
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(260px, 320px) 1fr;
+            gap: 24px;
+            align-items: start;
+        }
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            position: sticky;
+            top: 24px;
+        }
+        .timeline {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        @media (max-width: 920px) {
+            .layout { grid-template-columns: 1fr; }
+            .sidebar { position: static; }
+        }
+        .panel {
+            background: #fff;
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+        }
+        .status-line { font-size: 13px; color: #64748b; }
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: flex-end;
+        }
+        .filter-group { display: grid; gap: 6px; min-width: 160px; }
+        @media (max-width: 980px) {
+            .toolbar { flex-direction: column; align-items: stretch; }
+            .toolbar .status { margin-left: 0; text-align: left; }
+        }
+        .event-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+        .event-tag { font-size: 12px; padding: 4px 8px; border-radius: 999px; background: #e0f2fe; color: #0369a1; }
+        .button-secondary { background: transparent; color: #1f6feb; border: 1px solid #90b4f7; }
+        .button-secondary:hover { background: rgba(31,110,235,0.08); }
+        .error-card { background:#fff7ed; border-radius:12px; border:1px solid #fed7aa; color:#9a3412; padding:24px; display:grid; gap:12px; text-align:center; }
+        /* 新增动画：最新轮次闪烁 */
+        @keyframes roundFlash {
+            0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.45); outline: 2px solid rgba(34,197,94,0.6); }
+            100% { box-shadow: 0 0 0 14px rgba(34,197,94,0); outline-color: transparent; }
+        }
+        .round--flash { animation: roundFlash 1.2s ease-out; }
+        /* 动效变量与基础 Keyframes */
+        :root {
+            --anim-fast: 120ms;
+            --anim-base: 240ms;
+            --anim-slow: 600ms;
+            --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        @keyframes kf-enter { from { opacity: 0; transform: translateY(12px);} to { opacity: 1; transform: none; } }
+        @keyframes kf-pulse { 0%{transform: scale(1);} 50%{transform: scale(1.04);} 100%{transform: scale(1);} }
+        @keyframes kf-float { 0%{ transform: translateY(0);} 50%{ transform: translateY(-4px);} 100%{ transform: translateY(0);} }
+        @keyframes kf-sweep { 0%{ background-position: -150% 0;} 100%{ background-position: 150% 0;} }
+        @keyframes kf-wobble { 0%{ transform: rotate(0deg);} 25%{ transform: rotate(-1.5deg);} 75%{ transform: rotate(1.5deg);} 100%{ transform: rotate(0deg);} }
+        @media (prefers-reduced-motion: reduce) {
+            * { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+        }
+        /* 事件入场轻动效 */
+        .event { animation: kf-enter var(--anim-base) var(--ease-out); }
+        /* 阶段横幅 */
+        .banner { position: sticky; top: 0; z-index: 30; display: none; margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; color: #0b1320; box-shadow: 0 2px 8px rgba(15,23,42,.12); font-weight: 700; letter-spacing: .5px; }
+        .banner--show { display: block; animation: kf-enter var(--anim-slow) var(--ease-out); }
+        .banner--day { background: linear-gradient(90deg,#fde68a, #f8fafc); }
+        .banner--night { background: linear-gradient(90deg,#111827, #0b1320); color: #e5e7eb; }
+        /* 角色动画占位类，作用于 .event-avatar */
+        .anim-wolf-sweep { position: relative; overflow: hidden; }
+        .anim-wolf-sweep::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.35) 50%, rgba(255,255,255,0) 100%); background-size: 200% 100%; animation: kf-sweep var(--anim-fast) ease-out 1; pointer-events: none; }
+        .anim-seer-orbit { position: relative; }
+        .anim-seer-orbit::after { content: ""; position: absolute; width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; top: -3px; left: 50%; transform-origin: -12px 21px; animation: kf-float 600ms ease-in-out 1, orbit 2s linear 1; }
+        @keyframes orbit { from{ transform: rotate(0deg);} to{ transform: rotate(360deg);} }
+        .anim-witch-float { animation: kf-float 800ms ease-in-out 1; }
+        .anim-hunter-wobble { animation: kf-wobble 120ms ease-out 1; }
+        .anim-guardian-shield-in { box-shadow: 0 0 0 2px rgba(59,130,246,.3) inset; animation: kf-pulse 300ms var(--ease-out) 1; }
+        .anim-pulse { animation: kf-pulse 1200ms var(--ease-out) 1; }
+        /* 暗色主题基础适配 */
+        @media (prefers-color-scheme: dark) {
+            body { background-color: #0b1320; color: #e5e7eb; }
+            header { background: #0f1f3a; color: #e5e7eb; }
+            .panel, .match-meta, .round, .empty { background: #0f172a; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+            .round-header { border-bottom-color: #1f2937; }
+            .round-count { color: #94a3b8; }
+            .event-extra { background: #0b1626; color: #cfd9f1; }
+            .event-extra__title { color: #e2e8f0; }
+            .event-meta-list pre { background: #192642; color: #e2e8f0; }
+            .event-raw summary { color: #90b4f7; }
+            .event-raw pre { background: #16213a; color: #e2e8f0; }
+            .list li { background: #1f2937; color: #e2e8f0; }
+            .event { border-bottom: 1px solid #142033; }
+            .event-content { background: #0b1626; }
+            .event--system { background: #06251a; border-left-color: #34d399; }
+            .event--system .event-content { color: #a7f3d0; }
+            .status-line { color: #94a3b8; }
+            .button-secondary { color: #90b4f7; border-color: #375bd2; }
+            .button-secondary:hover { background: rgba(31,110,235,0.12); }
+            .banner--day { background: linear-gradient(90deg,#7c6f3a, #0f172a); color: #fde68a; }
+            .banner--night { background: linear-gradient(90deg,#0b1320, #020617); color: #e2e8f0; }
+        }
+        /* 系统事件样式增强 */
+        .event--system { position: relative; overflow: hidden; }
+        .event--system.sys-exile { border-left-color: #f59e0b; }
+        .event--system.sys-nightkill { border-left-color: #ef4444; }
+        .event--system.sys-victory { border-left-color: #22c55e; }
+        .event--system.sys-nightkill::before { content: ""; position: absolute; inset: 0; background: linear-gradient(120deg, rgba(239,68,68,0) 0%, rgba(239,68,68,.18) 50%, rgba(239,68,68,0) 100%); background-size: 200% 100%; animation: kf-sweep var(--anim-fast) ease-out 1; pointer-events: none; }
+        .event--system.sys-exile::before { content: ""; position: absolute; inset: 0; background: linear-gradient(120deg, rgba(245,158,11,0) 0%, rgba(245,158,11,.14) 50%, rgba(245,158,11,0) 100%); background-size: 200% 100%; animation: kf-sweep var(--anim-fast) ease-out 1; pointer-events: none; }
+        .event--system.sys-victory { box-shadow: 0 0 0 1px rgba(34,197,94,.18) inset; }
+        /* 系统事件图标与布局 */
+        .event-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-right: 8px; font-size: 14px; line-height: 1; opacity: .9; }
+        .event--system .event-header { align-items: center; }
+        .event--system.sys-exile .event-icon { color: #f59e0b; }
+        .event--system.sys-nightkill .event-icon { color: #ef4444; }
+        .event--system.sys-victory .event-icon { color: #22c55e; }
+        
     </style>
 </head>
 <body>
-    <header>
-        <h1>狼人杀对局观战面板</h1>
-        <p>实时查看各位玩家在讨论阶段的发言以及系统提示。</p>
+    <header class="app-header">
+        <div class="brand">
+            <div class="logo" aria-hidden="true">W</div>
+            <div class="titles">
+                <h1>狼人杀对局观战面板</h1>
+                <p>实时查看各位玩家在讨论阶段的发言以及系统提示。</p>
+            </div>
+        </div>
+        <div class="header-actions">
+            <label class="sr-only" for="textSearch">搜索发言</label>
+            <input id="textSearch" type="search" placeholder="搜索内容/玩家/频道...">
+            <button id="toggleDensityBtn" class="button-secondary" type="button" aria-pressed="false">紧凑模式</button>
+        </div>
     </header>
     <main>
-        <section class="controls">
-            <label for="matchSelect">对局</label>
-            <select id="matchSelect"></select>
-            <button id="refreshBtn">立即刷新</button>
-            <span id="statusText">加载中...</span>
-        </section>
-
-        <section class="match-meta" id="matchMeta" hidden>
-            <div><strong>当前阶段：</strong><span id="phaseText">-</span></div>
-            <div><strong>当前轮次：</strong><span id="roundText">-</span></div>
-            <div>
-                <strong>存活玩家：</strong>
-                <ul class="list" id="aliveList"></ul>
+        <div id="stageBanner" class="banner" aria-live="polite" hidden></div>
+        <section class="toolbar panel">
+            <div class="group">
+                <label for="matchSelect">对局</label>
+                <select id="matchSelect"></select>
+                <a href="/graph.html" class="button-secondary" role="button">投票/指控关系图</a>
             </div>
-            <div>
-                <strong>出局玩家：</strong>
-                <ul class="list" id="deadList"></ul>
+            <div class="group">
+                <button id="refreshBtn" type="button">立即刷新</button>
+                <button id="toggleAutoRefreshBtn" type="button">暂停自动刷新</button>
+                <label for="refreshIntervalSelect">刷新频率</label>
+                <select id="refreshIntervalSelect">
+                    <option value="3000">3 秒</option>
+                    <option value="5000" selected>5 秒</option>
+                    <option value="10000">10 秒</option>
+                </select>
+            </div>
+            <div class="status">
+                <span class="status-line" id="statusText">加载中...</span>
+                <span class="status-line" id="lastUpdatedText">上次同步：--</span>
             </div>
         </section>
+        <div class="layout layout-2col">
+            <aside class="sidebar sticky">
 
-        <section id="logContainer">
-            <div class="empty" id="emptyState">暂无发言记录</div>
-        </section>
+                <section class="match-meta panel" id="matchMeta" hidden>
+                    <div><strong>当前阶段：</strong><span id="phaseText">-</span></div>
+                    <div><strong>当前轮次：</strong><span id="roundText">-</span></div>
+                    <div>
+                        <strong>存活玩家：</strong>
+                        <ul class="list" id="aliveList"></ul>
+                    </div>
+                    <div>
+                        <strong>出局玩家：</strong>
+                        <ul class="list" id="deadList"></ul>
+                    </div>
+                </section>
+
+            </aside>
+
+            <section class="timeline">
+                <section class="filters panel" id="filtersPanel" hidden>
+                    <div class="filter-group">
+                        <label for="speakerFilter">发言类型</label>
+                        <select id="speakerFilter">
+                            <option value="all">全部</option>
+                            <option value="player">玩家发言</option>
+                            <option value="system">系统提示</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="playerFilter">玩家筛选</label>
+                        <select id="playerFilter" disabled>
+                            <option value="all">全部玩家</option>
+                        </select>
+                    </div>
+                    <button class="button-secondary" id="resetFiltersBtn" type="button">重置筛选</button>
+                    <button class="button-secondary" id="jumpToLatestBtn" type="button">跳至最新</button>
+                </section>
+
+                <section id="logContainer">
+                    <div class="empty" id="emptyState">暂无发言记录</div>
+                </section>
+            </section>
+        </div>
     </main>
 
     <script>
         const matchSelect = document.getElementById('matchSelect');
         const refreshBtn = document.getElementById('refreshBtn');
+        const toggleAutoRefreshBtn = document.getElementById('toggleAutoRefreshBtn');
+        const refreshIntervalSelect = document.getElementById('refreshIntervalSelect');
         const statusText = document.getElementById('statusText');
+        const lastUpdatedText = document.getElementById('lastUpdatedText');
         const matchMeta = document.getElementById('matchMeta');
         const phaseText = document.getElementById('phaseText');
         const roundText = document.getElementById('roundText');
         const aliveList = document.getElementById('aliveList');
         const deadList = document.getElementById('deadList');
+        const filtersPanel = document.getElementById('filtersPanel');
+        const speakerFilter = document.getElementById('speakerFilter');
+        const playerFilter = document.getElementById('playerFilter');
+        const resetFiltersBtn = document.getElementById('resetFiltersBtn');
         const logContainer = document.getElementById('logContainer');
+        const textSearch = document.getElementById('textSearch');
+        const toggleDensityBtn = document.getElementById('toggleDensityBtn');
         const emptyState = document.getElementById('emptyState');
+        const jumpToLatestBtn = document.getElementById('jumpToLatestBtn');
+        const stageBanner = document.getElementById('stageBanner');
+        
+        // AI配置相关元素
+        const aiConfigPanel = document.getElementById('aiConfigPanel');
+        const toggleAiConfigBtn = document.getElementById('toggleAiConfigBtn');
+        const aiConfigContent = document.getElementById('aiConfigContent');
+        const aiProvider = document.getElementById('aiProvider');
+        const apiKey = document.getElementById('apiKey');
+        const baseUrl = document.getElementById('baseUrl');
+        const modelName = document.getElementById('modelName');
+        const loadAiConfigBtn = document.getElementById('loadAiConfigBtn');
+        const saveAiConfigBtn = document.getElementById('saveAiConfigBtn');
+        const toggleApiKeyBtn = document.getElementById('toggleApiKeyBtn');
+        const resetBaseUrlBtn = document.getElementById('resetBaseUrlBtn');
+        const providerHelp = document.getElementById('providerHelp');
+        const baseUrlHelp = document.getElementById('baseUrlHelp');
+        const configStatus = document.getElementById('configStatus');
 
         let currentMatch = null;
         let autoRefreshTimer = null;
+        let autoRefreshEnabled = true;
+        let autoRefreshInterval = Number(refreshIntervalSelect.value) || 5000;
+        let lastUpdatedAt = null;
+        let latestMatchPayload = null;
+        let lastEventTimestamp = null;
+        let lastPhase = null;
+
+        const filters = {
+            speaker: speakerFilter.value,
+            player: playerFilter.value,
+        };
+
+        const STORAGE_KEY = 'webui_prefs_v1';
 
         function setStatus(message, type = 'info') {
             statusText.textContent = message;
-            statusText.style.color = type === 'error' ? '#dc2626' : '#1f2933';
+            statusText.style.color = type === 'error' ? '#dc2626' : '#64748b';
         }
 
         function clearChildren(node) {
             while (node.firstChild) {
                 node.removeChild(node.firstChild);
             }
+        }
+
+        function updateLastUpdatedText() {
+            const prefix = autoRefreshEnabled ? '上次同步' : '自动刷新已暂停 · 上次同步';
+            const timeText = lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString() : '--';
+            lastUpdatedText.textContent = `${prefix}：${timeText}`;
+        }
+
+        function touchLastUpdated() {
+            lastUpdatedAt = Date.now();
+            updateLastUpdatedText();
+        }
+
+        function updateAutoRefreshControls() {
+            toggleAutoRefreshBtn.textContent = autoRefreshEnabled ? '暂停自动刷新' : '恢复自动刷新';
+            toggleAutoRefreshBtn.setAttribute('aria-pressed', String(!autoRefreshEnabled));
+            refreshIntervalSelect.disabled = !autoRefreshEnabled;
+        }
+
+        function loadPrefs() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return;
+                const p = JSON.parse(raw);
+                if (p.refreshInterval && Number.isFinite(+p.refreshInterval)) {
+                    refreshIntervalSelect.value = String(p.refreshInterval);
+                    autoRefreshInterval = +p.refreshInterval;
+                }
+                if (typeof p.autoRefreshEnabled === 'boolean') {
+                    autoRefreshEnabled = p.autoRefreshEnabled;
+                }
+                if (p.speaker && ['all','player','system'].includes(p.speaker)) {
+                    speakerFilter.value = p.speaker;
+                    filters.speaker = p.speaker;
+                }
+                if (p.player) {
+                    filters.player = p.player;
+                }
+            } catch {}
+        }
+
+        function savePrefs() {
+            try {
+                const p = {
+                    refreshInterval: autoRefreshInterval,
+                    autoRefreshEnabled,
+                    speaker: filters.speaker,
+                    player: filters.player,
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+            } catch {}
+        }
+
+        function renderEmptyState(message) {
+            clearChildren(logContainer);
+            emptyState.textContent = message;
+            emptyState.style.display = 'block';
+            logContainer.appendChild(emptyState);
+        }
+
+        function showErrorState(message) {
+            clearChildren(logContainer);
+            filtersPanel.hidden = true;
+            const card = document.createElement('div');
+            card.className = 'error-card';
+            const title = document.createElement('p');
+            title.textContent = message;
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'button-secondary';
+            retry.textContent = '重试';
+            retry.addEventListener('click', () => {
+                if (currentMatch) {
+                    loadMatch(currentMatch);
+                } else {
+                    loadMatches();
+                }
+            });
+            card.append(title, retry);
+            logContainer.appendChild(card);
+        }
+
+        function showStageBanner(phase) {
+            if (!stageBanner) return;
+            const text = typeof phase === 'string' ? phase : String(phase || '阶段变更');
+            const lower = text.toLowerCase();
+            const isNight = lower.includes('night') || text.includes('夜') || lower.includes('dark') || lower.includes('evening');
+            stageBanner.textContent = isNight ? `夜晚开始` : `天亮了`;
+            stageBanner.classList.remove('banner--night','banner--day','banner--show');
+            stageBanner.classList.add(isNight ? 'banner--night' : 'banner--day');
+            stageBanner.hidden = false;
+            requestAnimationFrame(() => {
+                stageBanner.classList.add('banner--show');
+                setTimeout(() => {
+                    stageBanner.classList.remove('banner--show');
+                    stageBanner.hidden = true;
+                }, 900);
+            });
         }
 
         async function loadMatches() {
@@ -231,6 +666,9 @@
             } catch (err) {
                 console.error(err);
                 setStatus('获取对局列表失败', 'error');
+                if (!latestMatchPayload) {
+                    showErrorState('暂时无法获取对局，请稍后重试');
+                }
             }
         }
 
@@ -242,6 +680,7 @@
                 option.value = '';
                 matchSelect.appendChild(option);
                 currentMatch = null;
+                latestMatchPayload = null;
                 renderMatch(null);
                 setStatus('等待新对局...');
                 return;
@@ -273,20 +712,42 @@
                 const response = await fetch(`/api/matches/${matchId}/speech-log`);
                 if (!response.ok) throw new Error('日志接口错误');
                 const data = await response.json();
+                if (data && data.phase) {
+                    const p = String(data.phase).toLowerCase();
+                    if (lastPhase === null) {
+                        lastPhase = data.phase;
+                    } else if (data.phase !== lastPhase) {
+                        showStageBanner(data.phase);
+                        lastPhase = data.phase;
+                    }
+                }
+                const newLastTs = getLastEventTimestamp(Array.isArray(data.speech_log) ? data.speech_log : []);
+                latestMatchPayload = data;
                 renderMatch(data);
+                if (lastEventTimestamp === null || (newLastTs !== null && newLastTs > lastEventTimestamp)) {
+                    flashLatestRound();
+                    lastEventTimestamp = newLastTs;
+                }
+                touchLastUpdated();
                 setStatus('最新数据已同步');
             } catch (err) {
                 console.error(err);
                 setStatus('获取发言记录失败', 'error');
+                if (!latestMatchPayload) {
+                    showErrorState('获取发言记录失败，请重试');
+                }
             }
         }
 
-        function renderMatch(match) {
+        function renderMatch(match, options = {}) {
+            const { fromCache = false } = options;
             if (!match) {
+                if (!fromCache) {
+                    latestMatchPayload = null;
+                }
                 matchMeta.hidden = true;
-                emptyState.style.display = 'block';
-                clearChildren(logContainer);
-                logContainer.appendChild(emptyState);
+                filtersPanel.hidden = true;
+                renderEmptyState('暂无发言记录');
                 return;
             }
 
@@ -297,31 +758,122 @@
             renderPlayerList(aliveList, match.alive_players || []);
             renderPlayerList(deadList, match.dead_players || []);
 
-            const grouped = groupByRound(match.speech_log || []);
+            if (!fromCache) {
+                populatePlayerFilter(match);
+            }
+
+            const rawEvents = Array.isArray(match.speech_log) ? match.speech_log : [];
+            const hasAnyEvents = rawEvents.length > 0;
+            const filteredEvents = applyFilters(rawEvents);
+            const grouped = groupByRound(filteredEvents);
+
             clearChildren(logContainer);
 
+            if (!hasAnyEvents) {
+                filtersPanel.hidden = true;
+                renderEmptyState('暂无发言记录');
+                return;
+            }
+
+            filtersPanel.hidden = false;
+
             if (!grouped.size) {
-                logContainer.appendChild(emptyState);
-                emptyState.style.display = 'block';
+                renderEmptyState('筛选条件下暂无记录');
                 return;
             }
             emptyState.style.display = 'none';
 
-            grouped.forEach((events, roundKey) => {
+            const rounds = Array.from(grouped.entries()).map(([roundKey, events]) => {
+                const sortedEvents = [...events].sort((a, b) => {
+                    const parsedA = a.timestamp ? Date.parse(a.timestamp) : 0;
+                    const parsedB = b.timestamp ? Date.parse(b.timestamp) : 0;
+                    const timeA = Number.isNaN(parsedA) ? 0 : parsedA;
+                    const timeB = Number.isNaN(parsedB) ? 0 : parsedB;
+                    return timeB - timeA;
+                });
+                return {
+                    roundKey,
+                    events: sortedEvents,
+                    lastTimestamp: getLastEventTimestamp(sortedEvents)
+                };
+            });
+
+            const roundWeight = (round) => {
+                if (typeof round.lastTimestamp === 'number' && !Number.isNaN(round.lastTimestamp)) {
+                    return round.lastTimestamp;
+                }
+                return parseRoundKey(round.roundKey);
+            };
+
+            rounds.sort((a, b) => {
+                const weightDiff = roundWeight(b) - roundWeight(a);
+                if (!Number.isNaN(weightDiff) && weightDiff !== 0) {
+                    return weightDiff;
+                }
+                const roundDiff = parseRoundKey(b.roundKey) - parseRoundKey(a.roundKey);
+                if (!Number.isNaN(roundDiff) && roundDiff !== 0) {
+                    return roundDiff;
+                }
+                return 0;
+            });
+
+            rounds.forEach((round, index) => {
                 const roundCard = document.createElement('article');
                 roundCard.className = 'round';
+                roundCard.dataset.round = round.roundKey;
 
                 const header = document.createElement('div');
                 header.className = 'round-header';
+
                 const title = document.createElement('span');
-                title.textContent = `第 ${roundKey} 轮`;
+                title.className = 'round-title';
+                title.textContent = `第 ${round.roundKey} 轮`;
+
                 const count = document.createElement('span');
-                count.textContent = `${events.length} 条记录`;
-                header.append(title, count);
+                count.className = 'round-count';
+                count.dataset.total = String(round.events.length);
+                count.textContent = `${round.events.length} 条记录`;
+
+                const toggleBtn = document.createElement('button');
+                toggleBtn.type = 'button';
+                toggleBtn.className = 'round-toggle';
+
+                header.append(title, count, toggleBtn);
                 roundCard.appendChild(header);
 
-                events.forEach(event => {
-                    roundCard.appendChild(createEventElement(event));
+                const content = document.createElement('div');
+                content.className = 'round-content';
+                const contentIdBase = String(round.roundKey).replace(/[^a-zA-Z0-9_-]/g, '') || 'round';
+                const contentId = `round-content-${index}-${contentIdBase}`;
+                content.id = contentId;
+                toggleBtn.setAttribute('aria-controls', contentId);
+                round.events.forEach(event => {
+                    content.appendChild(createEventElement(event));
+                });
+                roundCard.appendChild(content);
+
+                const collapsed = index !== 0;
+                if (collapsed) {
+                    roundCard.classList.add('collapsed');
+                    toggleBtn.textContent = '展开';
+                    toggleBtn.setAttribute('aria-expanded', 'false');
+                } else {
+                    toggleBtn.textContent = '收起';
+                    toggleBtn.setAttribute('aria-expanded', 'true');
+                }
+
+                const toggle = () => {
+                    const isCollapsed = roundCard.classList.toggle('collapsed');
+                    toggleBtn.textContent = isCollapsed ? '展开' : '收起';
+                    toggleBtn.setAttribute('aria-expanded', String(!isCollapsed));
+                };
+                toggleBtn.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    toggle();
+                });
+                header.addEventListener('click', (event) => {
+                    if (event.target.closest('.round-toggle')) { return; }
+                    toggle();
                 });
 
                 logContainer.appendChild(roundCard);
@@ -343,6 +895,72 @@
             });
         }
 
+        function populatePlayerFilter(match) {
+            const previous = filters.player;
+            const names = new Set();
+            (match.alive_players || []).forEach(name => { if (name) names.add(name); });
+            (match.dead_players || []).forEach(name => { if (name) names.add(name); });
+            (match.speech_log || []).forEach(event => {
+                const label = event.display_name || event.player_id;
+                if (label) names.add(label);
+            });
+            const sortedNames = Array.from(names).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { sensitivity: 'base' }));
+
+            clearChildren(playerFilter);
+            const allOption = document.createElement('option');
+            allOption.value = 'all';
+            allOption.textContent = '全部玩家';
+            playerFilter.appendChild(allOption);
+
+            sortedNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                playerFilter.appendChild(option);
+            });
+
+            if (sortedNames.includes(previous)) {
+                playerFilter.value = previous;
+                filters.player = previous;
+            } else if (filters.player !== 'all' && sortedNames.includes(filters.player)) {
+                playerFilter.value = filters.player;
+            } else {
+                playerFilter.value = 'all';
+                filters.player = 'all';
+            }
+
+            playerFilter.disabled = !sortedNames.length;
+            savePrefs();
+        }
+
+        function applyFilters(events) {
+            return events.filter(event => {
+                const speakerType = event.speaker_type || 'player';
+                if (filters.speaker === 'system' && speakerType !== 'system') { return false; }
+                if (filters.speaker === 'player' && speakerType === 'system') { return false; }
+                if (filters.player !== 'all') {
+                    const label = event.display_name || event.player_id;
+                    if (label !== filters.player) { return false; }
+                }
+                return true;
+            });
+        }
+
+        function normalizeRole(raw) {
+            if (!raw) return '';
+            const s = String(raw).trim().toLowerCase();
+            const map = {
+                '狼人': 'werewolf', '狼': 'werewolf', 'werewolf': 'werewolf',
+                '预言家': 'seer', 'seer': 'seer', '占卜师': 'seer',
+                '女巫': 'witch', 'witch': 'witch',
+                '猎人': 'hunter', 'hunter': 'hunter',
+                '守卫': 'guardian', '守护': 'guardian', 'guardian': 'guardian',
+                '村民': 'villager', '平民': 'villager', 'villager': 'villager',
+                '丘比特': 'cupid', 'cupid': 'cupid'
+            };
+            return map[s] || s;
+        }
+
         function groupByRound(events) {
             const sorted = [...events].sort((a, b) => {
                 const parsedA = a.timestamp ? Date.parse(a.timestamp) : 0;
@@ -354,12 +972,47 @@
             const map = new Map();
             sorted.forEach(event => {
                 const round = event.round ?? '未知';
-                if (!map.has(round)) {
-                    map.set(round, []);
-                }
+                if (!map.has(round)) { map.set(round, []); }
                 map.get(round).push(event);
             });
             return map;
+        }
+
+        function parseRoundKey(key) {
+            if (key == null) return Number.NEGATIVE_INFINITY;
+            const cleaned = String(key).match(/-?\d+(?:\.\d+)?/);
+            if (!cleaned) return Number.NEGATIVE_INFINITY;
+            const num = Number(cleaned[0]);
+            return Number.isFinite(num) ? num : Number.NEGATIVE_INFINITY;
+        }
+
+        function getLastEventTimestamp(events) {
+            let last = null;
+            for (const ev of events) {
+                if (!ev.timestamp) continue;
+                const t = Date.parse(ev.timestamp);
+                if (!Number.isNaN(t)) {
+                    if (last === null || t > last) last = t;
+                }
+            }
+            return last;
+        }
+
+        function scrollToLatest() {
+            const latestRound = document.querySelector('#logContainer .round:nth-of-type(1)');
+            if (latestRound) {
+                latestRound.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                latestRound.classList.add('round--flash');
+                setTimeout(() => latestRound.classList.remove('round--flash'), 1200);
+            }
+        }
+
+        function flashLatestRound() {
+            const latestRound = document.querySelector('#logContainer .round:nth-of-type(1)');
+            if (latestRound) {
+                latestRound.classList.add('round--flash');
+                setTimeout(() => latestRound.classList.remove('round--flash'), 1200);
+            }
         }
 
         function formatSpeakerLabel(event, speakerType) {
@@ -371,18 +1024,46 @@
         }
 
         function formatMeta(event) {
-            const parts = [];
-            if (event.phase) {
-                parts.push(event.phase);
+            if (!event.timestamp) { return '-'; }
+            const parsed = Date.parse(event.timestamp);
+            if (Number.isNaN(parsed)) { return '-'; }
+            return new Date(parsed).toLocaleTimeString();
+        }
+
+        function formatDateTime(value) {
+            if (!value) { return null; }
+            const parsed = Date.parse(value);
+            if (Number.isNaN(parsed)) { return value; }
+            const date = new Date(parsed);
+            return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+        }
+
+        function createDefinitionList(pairs) {
+            const dl = document.createElement('dl');
+            dl.className = 'event-meta-list';
+            let appended = false;
+            pairs.forEach(([label, value]) => {
+                if (value === undefined || value === null || value === '') {
+                    return;
+                }
+                appendDefinitionItem(dl, label, value);
+                appended = true;
+            });
+            return appended ? dl : null;
+        }
+
+        function appendDefinitionItem(dl, label, value) {
+            const dt = document.createElement('dt');
+            dt.textContent = label;
+            const dd = document.createElement('dd');
+            if (typeof value === 'object') {
+                const pre = document.createElement('pre');
+                pre.textContent = JSON.stringify(value, null, 2);
+                dd.appendChild(pre);
+            } else {
+                dd.textContent = String(value);
             }
-            if (event.timestamp) {
-                parts.push(new Date(event.timestamp).toLocaleTimeString());
-            }
-            const channel = event.channel || 'speech';
-            if (channel !== 'speech') {
-                parts.push(`#${channel}`);
-            }
-            return parts.join(' · ') || '-';
+            dl.append(dt, dd);
         }
 
         function getAvatarText(event, speakerType) {
@@ -401,6 +1082,13 @@
             wrapper.dataset.channel = event.channel || 'speech';
             if (speakerType === 'system') {
                 wrapper.classList.add('event--system');
+                const text = ((event.content || '') + ' ' + (event.action || '') + ' ' + (event.type || '')).toString();
+                const isExile = /放逐|放票|投票|票型/.test(text);
+                const isNightKill = /夜杀|击杀|被刀|刀死|死亡/.test(text);
+                const isVictory = /胜利|获胜|失败|游戏结束|结束/.test(text);
+                if (isExile) wrapper.classList.add('sys-exile');
+                if (isNightKill) wrapper.classList.add('sys-nightkill');
+                if (isVictory) wrapper.classList.add('sys-victory');
             }
 
             const avatar = document.createElement('div');
@@ -420,13 +1108,102 @@
             meta.className = 'event-meta';
             meta.textContent = formatMeta(event);
 
+            // 系统事件：在标题前注入图标
+            if (speakerType === 'system') {
+                const icon = document.createElement('span');
+                icon.className = 'event-icon';
+                const text = wrapper.classList.contains('sys-nightkill') ? '🗡️' : (wrapper.classList.contains('sys-exile') ? '🗳️' : (wrapper.classList.contains('sys-victory') ? '🏆' : 'ℹ️'));
+                icon.textContent = text;
+                icon.setAttribute('aria-hidden', 'true');
+                header.prepend(icon);
+            }
+
             header.append(speaker, meta);
+            body.appendChild(header);
+
+            // 角色占位动画：在头像上触发一次性短动画
+            if (speakerType === 'player') {
+                const role = normalizeRole(event.role);
+                const animClassMap = {
+                    werewolf: 'anim-wolf-sweep',
+                    seer: 'anim-seer-orbit',
+                    witch: 'anim-witch-float',
+                    hunter: 'anim-hunter-wobble',
+                    guardian: 'anim-guardian-shield-in',
+                    villager: 'anim-pulse',
+                    cupid: 'anim-pulse',
+                };
+                const cls = animClassMap[role];
+                if (cls) {
+                    avatar.classList.add(cls);
+                    setTimeout(() => avatar.classList.remove(cls), 1500);
+                }
+            }
+
+            const tags = [];
+            if (event.phase) { tags.push(event.phase); }
+            const channel = event.channel || 'speech';
+            if (channel !== 'speech') { tags.push(`#${channel}`); }
+            if (tags.length) {
+                const tagList = document.createElement('div');
+                tagList.className = 'event-tags';
+                tags.forEach(text => {
+                    const tag = document.createElement('span');
+                    tag.className = 'event-tag';
+                    tag.textContent = text;
+                    tagList.appendChild(tag);
+                });
+                body.appendChild(tagList);
+            }
 
             const content = document.createElement('div');
             content.className = 'event-content';
             content.textContent = event.content || '';
 
-            body.append(header, content);
+            body.appendChild(content);
+
+            const infoPairs = [
+                ['时间', formatDateTime(event.timestamp)],
+                ['频道', channel],
+                ['阶段', event.phase],
+                ['轮次', event.round],
+                ['玩家ID', event.player_id],
+                ['角色', event.role],
+                ['显示名称', event.display_name],
+            ];
+            const infoList = createDefinitionList(infoPairs);
+            if (infoList) {
+                const infoSection = document.createElement('div');
+                infoSection.className = 'event-extra';
+                const infoTitle = document.createElement('div');
+                infoTitle.className = 'event-extra__title';
+                infoTitle.textContent = '事件信息';
+                infoSection.append(infoTitle, infoList);
+                body.appendChild(infoSection);
+            }
+
+            if (event.metadata && typeof event.metadata === 'object' && Object.keys(event.metadata).length) {
+                const metaList = createDefinitionList(Object.entries(event.metadata));
+                if (metaList) {
+                    const metaSection = document.createElement('div');
+                    metaSection.className = 'event-extra';
+                    const metaTitle = document.createElement('div');
+                    metaTitle.className = 'event-extra__title';
+                    metaTitle.textContent = '附加数据';
+                    metaSection.append(metaTitle, metaList);
+                    body.appendChild(metaSection);
+                }
+            }
+
+            const rawDetails = document.createElement('details');
+            rawDetails.className = 'event-raw';
+            const summary = document.createElement('summary');
+            summary.textContent = '查看原始事件数据';
+            const pre = document.createElement('pre');
+            pre.textContent = JSON.stringify(event, null, 2);
+            rawDetails.append(summary, pre);
+            body.appendChild(rawDetails);
+
             wrapper.append(avatar, body);
 
             return wrapper;
@@ -445,20 +1222,324 @@
             }
         });
 
+        function rerenderFromCache() {
+            if (latestMatchPayload) {
+                renderMatch(latestMatchPayload, { fromCache: true });
+            }
+        }
+
+        toggleAutoRefreshBtn.addEventListener('click', () => {
+            autoRefreshEnabled = !autoRefreshEnabled;
+            updateAutoRefreshControls();
+            updateLastUpdatedText();
+            savePrefs();
+            scheduleAutoRefresh();
+        });
+
+        refreshIntervalSelect.addEventListener('change', event => {
+            const next = Number(event.target.value);
+            if (!Number.isFinite(next) || next <= 0) { return; }
+            autoRefreshInterval = next;
+            savePrefs();
+            scheduleAutoRefresh();
+        });
+
+        speakerFilter.addEventListener('change', event => {
+            filters.speaker = event.target.value;
+            savePrefs();
+            rerenderFromCache();
+        });
+
+        playerFilter.addEventListener('change', event => {
+            filters.player = event.target.value;
+            savePrefs();
+            rerenderFromCache();
+        });
+
+        resetFiltersBtn.addEventListener('click', () => {
+            filters.speaker = 'all';
+            filters.player = 'all';
+            speakerFilter.value = 'all';
+            playerFilter.value = 'all';
+            savePrefs();
+            rerenderFromCache();
+        });
+
+        jumpToLatestBtn.addEventListener('click', () => {
+            scrollToLatest();
+        });
+
         function scheduleAutoRefresh() {
             if (autoRefreshTimer) {
                 clearInterval(autoRefreshTimer);
+                autoRefreshTimer = null;
             }
+            if (!autoRefreshEnabled) { return; }
             autoRefreshTimer = setInterval(() => {
                 if (currentMatch) {
                     loadMatch(currentMatch);
                 } else {
                     loadMatches();
                 }
-            }, 5000);
+            }, autoRefreshInterval);
         }
 
-        loadMatches().then(scheduleAutoRefresh);
+        // AI配置相关函数
+        function showConfigStatus(message, type = 'success') {
+            configStatus.textContent = message;
+            configStatus.className = `config-status ${type}`;
+            setTimeout(() => {
+                configStatus.className = 'config-status';
+            }, 3000);
+        }
+
+        function updateProviderUI() {
+            const provider = aiProvider.value;
+            if (provider === 'openai') {
+                apiKey.disabled = false;
+                apiKey.placeholder = '输入API密钥';
+                baseUrl.placeholder = 'https://api.openai.com/v1';
+                if (baseUrl.value === 'http://localhost:11434/v1') {
+                    baseUrl.value = '';
+                }
+                if (providerHelp) providerHelp.textContent = 'OpenAI 需提供 API 密钥；可留空 Base URL 使用默认域名。';
+                if (baseUrlHelp) baseUrlHelp.textContent = 'OpenAI 可留空使用默认域名（https://api.openai.com/v1）';
+            } else if (provider === 'ollama') {
+                apiKey.value = '';
+                apiKey.disabled = true;
+                apiKey.placeholder = '本地模型无需密钥';
+                if (!baseUrl.value.trim()) {
+                    baseUrl.value = 'http://localhost:11434/v1';
+                }
+                baseUrl.placeholder = 'http://localhost:11434/v1';
+                if (providerHelp) providerHelp.textContent = 'Ollama 为本地模型，通常无需密钥；请确认 Base URL';
+                if (baseUrlHelp) baseUrlHelp.textContent = '推荐使用 http://localhost:11434/v1，或根据实际服务调整';
+            } else {
+                apiKey.disabled = false;
+                apiKey.placeholder = '根据供应商要求填写';
+                baseUrl.placeholder = '例如：https://your-endpoint/v1';
+                if (providerHelp) providerHelp.textContent = '自定义供应商：根据实际要求填写密钥与 Base URL';
+                if (baseUrlHelp) baseUrlHelp.textContent = '请填写兼容 OpenAI API 的基础 URL';
+            }
+        }
+
+        function toggleAiConfigPanel() {
+            const isHidden = aiConfigContent.hidden;
+            aiConfigContent.hidden = !isHidden;
+            toggleAiConfigBtn.textContent = isHidden ? '收起' : '展开';
+            
+            // 首次展开时加载配置
+            if (isHidden) {
+                loadAiConfig();
+            }
+        }
+
+        async function loadAiConfig() {
+            try {
+                const response = await fetch('/api/ai-config');
+                if (!response.ok) throw new Error('获取配置失败');
+                const config = await response.json();
+                
+                // 填充表单
+                aiProvider.value = config.AI_PROVIDER || 'openai';
+                apiKey.value = config.OPENAI_API_KEY && !config.OPENAI_API_KEY.includes('*') ? config.OPENAI_API_KEY : '';
+                baseUrl.value = config.OPENAI_BASE_URL || '';
+                modelName.value = config.OPENAI_MODEL_NAME || config.AI_MODEL_NAME || '';
+                updateProviderUI();
+                
+                showConfigStatus('配置已加载', 'success');
+            } catch (error) {
+                console.error('加载AI配置失败:', error);
+                showConfigStatus('加载配置失败: ' + error.message, 'error');
+            }
+        }
+
+        async function saveAiConfig() {
+            try {
+                const provider = aiProvider.value;
+                const key = (apiKey.value || '').trim();
+                const url = (baseUrl.value || '').trim();
+
+                if (provider === 'openai' && !key) {
+                    showConfigStatus('OpenAI 模式需要填写 API 密钥', 'error');
+                    return;
+                }
+                if (provider !== 'openai' && !url) {
+                    showConfigStatus('本地/自定义提供商需要设置 Base URL', 'error');
+                    return;
+                }
+
+                saveAiConfigBtn.disabled = true;
+
+                const config = {
+                    AI_PROVIDER: provider,
+                    OPENAI_API_KEY: key,
+                    OPENAI_BASE_URL: url,
+                    OPENAI_MODEL_NAME: modelName.value
+                };
+                
+                const response = await fetch('/api/ai-config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+                
+                if (!response.ok) throw new Error('保存配置失败');
+                const result = await response.json();
+                
+                if (result.success) {
+                    showConfigStatus('配置已保存，重启游戏后生效', 'success');
+                } else {
+                    throw new Error(result.error || '未知错误');
+                }
+            } catch (error) {
+                console.error('保存AI配置失败:', error);
+                showConfigStatus('保存配置失败: ' + error.message, 'error');
+            } finally {
+                saveAiConfigBtn.disabled = false;
+            }
+        }
+
+        // AI配置事件监听器
+        toggleAiConfigBtn.addEventListener('click', toggleAiConfigPanel);
+        loadAiConfigBtn.addEventListener('click', loadAiConfig);
+        saveAiConfigBtn.addEventListener('click', saveAiConfig);
+        aiProvider.addEventListener('change', updateProviderUI);
+        if (toggleApiKeyBtn) {
+            toggleApiKeyBtn.addEventListener('click', () => {
+                const isPassword = apiKey.type === 'password';
+                apiKey.type = isPassword ? 'text' : 'password';
+                toggleApiKeyBtn.textContent = isPassword ? '隐藏' : '显示';
+            });
+        }
+        if (resetBaseUrlBtn) {
+            resetBaseUrlBtn.addEventListener('click', () => {
+                const provider = aiProvider.value;
+                if (provider === 'openai') {
+                    baseUrl.value = '';
+                } else if (provider === 'ollama') {
+                    baseUrl.value = 'http://localhost:11434/v1';
+                } else {
+                    baseUrl.value = '';
+                }
+                showConfigStatus('已重置为推荐的 Base URL', 'info');
+            });
+        }
+
+        // 初始化AI配置面板
+        aiConfigPanel.hidden = false;
+        updateProviderUI();
+
+        // 文字筛选与密度模式：初始化与渲染后过滤
+        function filterTimelineByText() {
+            try {
+                const q = (document.getElementById('textSearch')?.value || '').trim().toLowerCase();
+                const container = document.getElementById('logContainer');
+                if (!container) return;
+                const events = container.querySelectorAll('.event');
+                const rounds = container.querySelectorAll('.round');
+
+                if (!q) {
+                    events.forEach(ev => {
+                        ev.style.display = '';
+                        ev.classList.remove('event--hidden-by-search');
+                    });
+                    rounds.forEach(card => {
+                        card.classList.remove('round--hidden');
+                        card.style.display = '';
+                        const countEl = card.querySelector('.round-count');
+                        if (countEl) {
+                            const total = Number(countEl.dataset.total) || card.querySelectorAll('.event').length;
+                            countEl.textContent = `${total} 条记录`;
+                        }
+                    });
+                    emptyState.style.display = 'none';
+                    emptyState.textContent = '暂无发言记录';
+                    return;
+                }
+
+                events.forEach(ev => {
+                    const text = ev.innerText || ev.textContent || '';
+                    const matched = text.toLowerCase().includes(q);
+                    ev.style.display = matched ? '' : 'none';
+                    ev.classList.toggle('event--hidden-by-search', !matched);
+                });
+
+                rounds.forEach(card => {
+                    const allEvents = Array.from(card.querySelectorAll('.event'));
+                    const visibleEvents = allEvents.filter(ev => ev.style.display !== 'none');
+                    const hasVisible = visibleEvents.length > 0;
+                    card.classList.toggle('round--hidden', !hasVisible);
+                    card.style.display = hasVisible ? '' : 'none';
+
+                    const countEl = card.querySelector('.round-count');
+                    if (countEl) {
+                        const total = Number(countEl.dataset.total) || allEvents.length;
+                        if (!hasVisible) {
+                            countEl.textContent = `0 / ${total} 条记录`;
+                        } else if (visibleEvents.length === total) {
+                            countEl.textContent = `${total} 条记录`;
+                        } else {
+                            countEl.textContent = `${visibleEvents.length} / ${total} 条记录`;
+                        }
+                    }
+                });
+
+                const anyVisibleRound = Array.from(rounds).some(card => card.style.display !== 'none');
+                if (!anyVisibleRound) {
+                    emptyState.textContent = '没有符合搜索条件的记录';
+                    emptyState.style.display = 'block';
+                    if (!emptyState.parentElement) {
+                        logContainer.appendChild(emptyState);
+                    }
+                } else {
+                    emptyState.style.display = 'none';
+                }
+            } catch {}
+        }
+
+        const textSearchEl = document.getElementById('textSearch');
+        if (textSearchEl) {
+            textSearchEl.addEventListener('input', () => {
+                try { localStorage.setItem('spectator:textSearch', textSearchEl.value); } catch {}
+                filterTimelineByText();
+            });
+            // 恢复历史搜索词
+            try {
+                const prev = localStorage.getItem('spectator:textSearch');
+                if (prev) { textSearchEl.value = prev; }
+            } catch {}
+        }
+
+        const toggleDensityBtnEl = document.getElementById('toggleDensityBtn');
+        if (toggleDensityBtnEl) {
+            // 恢复密度
+            try {
+                const dense = localStorage.getItem('spectator:dense') === '1';
+                document.body.classList.toggle('dense', dense);
+                toggleDensityBtnEl.setAttribute('aria-pressed', String(dense));
+            } catch {}
+            toggleDensityBtnEl.addEventListener('click', () => {
+                const on = !document.body.classList.contains('dense');
+                document.body.classList.toggle('dense', on);
+                toggleDensityBtnEl.setAttribute('aria-pressed', String(on));
+                try { localStorage.setItem('spectator:dense', on ? '1' : '0'); } catch {}
+            });
+        }
+
+        // 当时间线DOM变化后，自动应用文本过滤
+        const lc = document.getElementById('logContainer');
+        if (lc && 'MutationObserver' in window) {
+            const mo = new MutationObserver(() => { filterTimelineByText(); });
+            mo.observe(lc, { childList: true });
+        }
+
+        loadPrefs();
+        updateAutoRefreshControls();
+        updateLastUpdatedText();
+        loadMatches().then(() => { scheduleAutoRefresh(); filterTimelineByText(); });
     </script>
 </body>
 </html>
